@@ -15,14 +15,13 @@ PIDFILE=$VMDIR/qemu.pid
 PORT=${VM_SSH_PORT:-2222}
 MEM=${VM_MEM:-4096}
 CPUS=${VM_CPUS:-6}
-USER_=${VM_USER:-builder}
 
 vm_ssh() {
 	ssh -i "$VMDIR/id_ed25519" -p "$PORT" \
 	    -o UserKnownHostsFile="$VMDIR/known_hosts" \
 	    -o StrictHostKeyChecking=accept-new \
 	    -o ConnectTimeout=5 -o BatchMode=yes \
-	    "$USER_@127.0.0.1" "$@"
+	    "${VM_USER:-builder}@127.0.0.1" "$@"
 }
 
 running() {

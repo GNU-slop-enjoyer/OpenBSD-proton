@@ -99,3 +99,6 @@ See TESTING.md. VM install: pass (2nd attempt). basic.exe: compiled, not run.
    add_signal_tid declaration issue apply to emulators/wine as well.
 5. `proton`-style launcher script (prefix management, env vars) once a
    graphics layer exists.
+6. Minor: VM console shows `reorder_kernel: failed` at boot (KARL relink;
+   see /usr/share/relink/kernel/GENERIC.MP/relink.log in the guest).
+   Possibly from the one hard power-off (run.sh stop bug, fixed).
