@@ -1,5 +1,10 @@
 OpenBSD gives CPU and memory information differently.
 
+Proton: fill_performance_core_info()/sysfs_parse_bitmap() are only defined
+for Linux (sysfs); provide no-information versions elsewhere.  The OpenBSD
+create_logical_proc_info() takes the CPU count from peb->NumberOfProcessors
+(wine 11.0 has no cpu_count global).
+
 Index: dlls/ntdll/unix/system.c
 --- dlls/ntdll/unix/system.c.orig
 +++ dlls/ntdll/unix/system.c
@@ -13,7 +18,23 @@ Index: dlls/ntdll/unix/system.c
  #ifdef __APPLE__
  # include <CoreFoundation/CoreFoundation.h>
  # include <IOKit/IOKitLib.h>
-@@ -1814,6 +1817,81 @@ end:
+@@ -765,8 +768,15 @@ void init_shared_data_cpuinfo( KUSER_SHA
+ 
+ #endif /* End architecture specific feature detection for CPUs */
+ 
++#ifdef linux
+ static void fill_performance_core_info(void);
+ static BOOL sysfs_parse_bitmap(const char *filename, ULONG_PTR *mask);
++#else
++/* There is no sysfs CPU topology outside Linux: no performance core
++ * information and no sibling masks for the CPU topology override. */
++static void fill_performance_core_info(void) {}
++static BOOL sysfs_parse_bitmap(const char *filename, ULONG_PTR *mask) { return FALSE; }
++#endif
+ 
+ static ULONG popcount( ULONG val )
+ {
+@@ -1814,6 +1824,81 @@ end:
      return nt_status;
  }
  
@@ -58,7 +79,7 @@ Index: dlls/ntdll/unix/system.c
 +static NTSTATUS create_logical_proc_info(void)
 +{
 +    CACHE_DESCRIPTOR cache[16];
-+    unsigned int i, j, count;
++    unsigned int i, j, count, cpu_count = peb->NumberOfProcessors;
 +    ULONG_PTR all_cpus_mask = 0;
 +
 +    if (!(count = get_cpuid_caches( cache, ARRAY_SIZE(cache) )))
@@ -95,7 +116,7 @@ Index: dlls/ntdll/unix/system.c
  #else
  
  static NTSTATUS create_logical_proc_info(void)
-@@ -2834,8 +2912,27 @@ static void get_performance_info( SYSTEM
+@@ -2834,8 +2919,27 @@ static void get_performance_info( SYSTEM
              }
          }
      }

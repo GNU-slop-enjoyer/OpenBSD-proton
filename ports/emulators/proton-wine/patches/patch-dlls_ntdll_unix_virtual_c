@@ -6,6 +6,7 @@
 - get_host_addr_space_limit(): mmap() ignores hints, use VM_MAXUSER_ADDRESS.
 - %gs stub allocator, APC_COPY_MEMORY and other OpenBSD adaptations from
   emulators/wine.
+- strchrnul() (GNU) in Proton's overlay preload hack: use strchr()/strlen().
 
 Index: dlls/ntdll/unix/virtual.c
 --- dlls/ntdll/unix/virtual.c.orig
@@ -30,6 +31,15 @@ Index: dlls/ntdll/unix/virtual.c
  #elif defined(MAP_TRYFIXED)
      ptr = mmap( start, size, prot, MAP_TRYFIXED | MAP_PRIVATE | MAP_ANON | flags, -1, 0 );
  #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+@@ -975,7 +981,7 @@ static void load_steam_overlay(const cha
+     p = preload;
+     while (*(preload = p))
+     {
+-        p = strchrnul( preload, ':' );
++        if (!(p = strchr( preload, ':' ))) p = preload + strlen( preload );
+         len = p - preload;
+         if (*p) ++p;
+         if (len + 1 > sizeof(path)) continue;
 @@ -2999,6 +3005,10 @@ static NTSTATUS map_pe_header( void *ptr
   */
  static void *get_host_addr_space_limit(void)

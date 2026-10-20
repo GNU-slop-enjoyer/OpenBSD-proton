@@ -29,9 +29,20 @@ root pkg_add -I \
 	pcsc-lite gnutls cups-libs dbus-1.16.2p1v0 libxkbcommon gtk+4-- samba-- \
 	2>&1 | tee "$TOP/logs/vm-pkg_add.log"
 
-# Ports tree: the working copy, minus git metadata.
-root 'mkdir -p /usr/ports && chown builder /usr/ports'
-tar -C "$TOP/upstream/ports" --exclude=.git -cf - . |
+# Ports tree: the release's ports.tar.gz (matches the binary packages, see
+# docs/DECISIONS.md D5), verified with the release signify key, with
+# emulators/wine from ports -current and this project's ports overlaid.
+REL=$("$RUN" ssh 'uname -r')
+"$RUN" ssh "mkdir -p ~/dist && cd ~/dist &&
+	ftp -V -o SHA256.sig https://cdn.openbsd.org/pub/OpenBSD/$REL/SHA256.sig &&
+	ftp -V -o ports.tar.gz https://cdn.openbsd.org/pub/OpenBSD/$REL/ports.tar.gz &&
+	signify -C -p /etc/signify/openbsd-$(echo "$REL" | tr -d .)-base.pub \
+	    -x SHA256.sig ports.tar.gz"
+root 'rm -rf /usr/ports && mkdir -p /usr/ports && chown builder /usr/ports'
+"$RUN" ssh 'tar -C /usr -xzf ~/dist/ports.tar.gz'
+tar -C "$TOP/upstream/ports" -cf - emulators/wine |
+	"$RUN" ssh 'tar -C /usr/ports -xf -'
+tar -C "$TOP/ports" -cf - emulators |
 	"$RUN" ssh 'tar -C /usr/ports -xf -'
 
 root 'mkdir -p /home/pobj /home/packages /home/distfiles /home/plist &&

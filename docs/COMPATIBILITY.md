@@ -54,12 +54,26 @@ Ported by hand (work tree commits `43e3b82`, `3247aa5`; **not compiled yet**):
   unconditionally; on OpenBSD it now stores the TEB in the loader TLS slot and
   initialises the slot offset on first use (it runs before
   `signal_init_process()`).
-- **Unix-side `NtCurrentTeb()`** (`unix_private.h`): reads the TLS slot
-  directly. Wine 11.0 Unix code calls `NtCurrentTeb()` (`%gs:0x30`) far more
-  than 11.19's, and a first-time `%gs` fault inside the SIGSEGV handler
-  (SIGSEGV blocked) would kill the process.
+- ~~Unix-side `NtCurrentTeb()` override~~ — removed after the first
+  compile: with `WINE_UNIX_LIB` Unix code calls the out-of-line
+  `NtCurrentTeb()` in `thread.c` (`pthread_getspecific(teb_key)`), never
+  `%gs` (`include/winnt.h`). Only the signal handlers' own code paths are
+  `%gs`-sensitive.
 
-## Proton-specific Linux features to check
+## Proton-specific code that assumed Linux/glibc (fixed; compile status in TESTING.md)
 
-- `dlls/ntdll/unix/fsync.c` (futex_waitv) and esync (eventfd): Linux-only;
-  confirm they compile out / stay disabled on OpenBSD.
+Found by compiling `emulators/proton-wine` in the VM; each is one work-tree
+commit and one port patch with a header.
+
+| Code | Problem | Fix |
+|---|---|---|
+| `ntdll/unix/fsync.c`, `server/fsync.c` | Linux futex/futex_waitv via `syscall(2)` (OpenBSD libc has no `syscall`) | `__linux__` guard, ENOSYS stubs; fsync never enabled elsewhere |
+| `ntdll/unix/sync.c`, `server/inproc_sync.c` | `ntsync_tmp.h` includes `<linux/types.h>` | include only on Linux; existing server fallback used |
+| `ntdll/unix/loader.c` | `<malloc.h>`, `mallopt(M_PERTURB)` (glibc) | `__GLIBC__` guard |
+| `ntdll/unix/signal_x86_64.c` | `set_thread_teb()` used `arch_prctl`; `jmp %rcx` rejected by clang's assembler | OpenBSD TLS-slot path; `jmp *%rcx` |
+| `ntdll/unix/socket.c` | `uintptr_t` without `<stdint.h>`; `TCP_KEEPINTVL`/`TCP_KEEPCNT` | upstream-style include and guards |
+| `ntdll/unix/system.c` (OpenBSD hunk) | 11.19 `cpu_count` global absent in 11.0 | `peb->NumberOfProcessors` |
+| `winebus.sys/Makefile.in` | missing `INOTIFY_CFLAGS` (pre-dates upstream fix) | backport |
+| `winegstreamer/media-converter` | `pthread_mutex_t` without `<pthread.h>` | include |
+| `winedmo` PCM byte-order BSF | defines an FFmpeg bitstream filter via FFmpeg-internal layouts; only works with libavcodec < 60 | public-API path for FFmpeg ≥ 6: null filter + in-place sample reversal |
+| `configure.ac` pcap check (11.0) | ignores `PCAP_CFLAGS/LIBS` | port adds libpcap dirs to `CPPFLAGS`/`LDFLAGS` |

@@ -36,7 +36,7 @@ CLANG_PE_HEADERS =		22.1.8
 DISTFILES.clang-pe-headers =	wine-clang-pe-headers-${CLANG_PE_HEADERS}.tar.gz
 SITES.clang-pe-headers =	https://thfr.info/distfiles/
 
-EXTRACT_ONLY =		${DISTFILES} ${DISTFILES.clang-pe-headers}
+EXTRACT_ONLY =		${ALL_DISTFILES:M*.tar.gz}
 
 WANTLIB += X11 Xext avcodec avformat avutil c c++abi gettextpo glib-2.0
 WANTLIB += gobject-2.0 gphoto2 gphoto2_port gstaudio-1.0 gstbase-1.0
@@ -86,12 +86,11 @@ USE_GMAKE =		Yes
 CONFIGURE_STYLE =	autoconf
 
 # Self-contained tree like Proton's "files" directory, so that this can be
-# installed next to emulators/wine.
-PROTON_PREFIX =		${PREFIX}/lib/proton-wine
-SUBST_VARS +=		PROTON_PREFIX
+# installed next to emulators/wine.  gnu.port.mk always passes
+# --prefix=${PREFIX}, so the prefix itself is moved.
+PREFIX =		${LOCALBASE}/lib/proton-wine
 
-CONFIGURE_ARGS =	--prefix=${PROTON_PREFIX} \
-			--enable-archs=x86_64 --with-mingw --disable-tests
+CONFIGURE_ARGS =	--enable-archs=x86_64 --with-mingw --disable-tests
 CONFIGURE_ARGS+=	--with-cups \
 			--with-dbus \
 			--with-ffmpeg \
@@ -111,7 +110,6 @@ CONFIGURE_ARGS+=	--with-cups \
 			--with-pulse \
 			--with-sane \
 			--with-sdl \
-			--with-va \
 			--with-vulkan \
 			--with-xcomposite \
 			--with-xcursor \
@@ -141,15 +139,18 @@ CONFIGURE_ARGS+=	--without-gssapi \
 			--without-v4l2 \
 			--without-wayland
 
+# Unlike wine 11.19, wine 11.0 checks pcap/pcap.h in its global header list
+# and sets PCAP_LIBS=-lpcap itself, ignoring PCAP_CFLAGS/PCAP_LIBS.  The
+# net/libpcap port installs outside the default search paths (base has an
+# older libpcap without pcap_init()), so add its directories here.
 CONFIGURE_ENV =		x86_64_CC="${WRKDIR}/bin/clang-pe" \
-			CPPFLAGS="-I${LOCALBASE}/include" \
-			LDFLAGS="-L${LOCALBASE}/lib"
+			CPPFLAGS="-I${LOCALBASE}/include \
+			-I${LOCALBASE}/include/libpcap" \
+			LDFLAGS="-L${LOCALBASE}/lib -L${LOCALBASE}/lib/libpcap \
+			-Wl,-rpath,${LOCALBASE}/lib/libpcap"
 
 CONFIGURE_ENV+=		INOTIFY_LIBS="-L${LOCALBASE}/lib/inotify \
-			-Wl,-rpath,${LOCALBASE}/lib/inotify -linotify" \
-			PCAP_CFLAGS="-I${LOCALBASE}/include/libpcap" \
-			PCAP_LIBS="-L${LOCALBASE}/lib/libpcap \
-			-Wl,-rpath,${LOCALBASE}/lib/libpcap -lpcap"
+			-Wl,-rpath,${LOCALBASE}/lib/inotify -linotify"
 
 AUTOCONF_VERSION =	2.73
 AUTOMAKE_VERSION =	1.18

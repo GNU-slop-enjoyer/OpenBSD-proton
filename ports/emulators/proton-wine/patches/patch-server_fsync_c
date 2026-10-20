@@ -1,0 +1,22 @@
+Proton's fsync uses the Linux futex and futex_waitv syscalls through
+syscall(2), which OpenBSD libc does not provide.  fsync is never enabled
+outside Linux (server fsync_check_support()); keep the code compiling with
+ENOSYS stubs so that WINEFSYNC=1 fails with the existing error message.
+
+Index: server/fsync.c
+--- server/fsync.c.orig
++++ server/fsync.c
+@@ -310,7 +310,13 @@ int fsync_grab_shm_idx( unsigned int shm
+ 
+ static inline int futex_wake( int *addr, int val )
+ {
++#ifdef __linux__
+     return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
++#else
++    /* fsync_check_support() never enables fsync without Linux futexes */
++    errno = ENOSYS;
++    return -1;
++#endif
+ }
+ 
+ /* shm layout for events or event-like objects. */

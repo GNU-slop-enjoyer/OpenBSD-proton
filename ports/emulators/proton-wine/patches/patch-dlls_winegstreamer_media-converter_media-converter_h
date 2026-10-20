@@ -1,0 +1,13 @@
+Proton's media converter uses pthread_mutex_t without including pthread.h.
+
+Index: dlls/winegstreamer/media-converter/media-converter.h
+--- dlls/winegstreamer/media-converter/media-converter.h.orig
++++ dlls/winegstreamer/media-converter/media-converter.h
+@@ -28,6 +28,7 @@
+ #include <inttypes.h>
+ #include <unistd.h>
+ #include <fcntl.h>
++#include <pthread.h>
+ #include <sys/stat.h>
+ 
+ #include "unix_private.h"

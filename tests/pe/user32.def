@@ -1,0 +1,19 @@
+LIBRARY user32.dll
+EXPORTS
+BeginPaint
+CreateWindowExA
+DefWindowProcA
+DestroyWindow
+DispatchMessageA
+EndPaint
+FillRect
+GetClientRect
+GetDC
+GetMessageA
+PostQuitMessage
+RegisterClassA
+ReleaseDC
+SetTimer
+ShowWindow
+TranslateMessage
+UpdateWindow

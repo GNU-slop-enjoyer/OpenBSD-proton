@@ -152,6 +152,15 @@ Index: dlls/ntdll/unix/signal_x86_64.c
  /***********************************************************************
   *           init_handler
   */
+@@ -2279,7 +2378,7 @@ __ASM_GLOBAL_FUNC( dump_syscall_fault_re
+                    "movq %rdi,%rsp\n\t"
+                    "movq %rsi,%rax\n\t"
+                    "movq %rdx,%r13\n\t"
+-                   "jmp %rcx")
++                   "jmp *%rcx")
+ 
+ 
+ static void dump_syscall_fault( CONTEXT *context, DWORD exc_code )
 @@ -2588,6 +2687,21 @@ static BOOL handle_syscall_trap( ucontex
      return TRUE;
  }

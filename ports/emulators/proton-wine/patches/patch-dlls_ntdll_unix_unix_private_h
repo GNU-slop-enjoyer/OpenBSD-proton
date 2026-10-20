@@ -1,46 +1,21 @@
-Unix-side NtCurrentTeb() reads the TEB from the loader TLS slot instead of
-%gs:0x30: OpenBSD has no user-settable %gs base and wine 11.0's Unix code
-calls NtCurrentTeb() often, so it must not rely on the %gs fault-and-rewrite
-path (fatal when first hit inside the SIGSEGV handler).
-Also declare virtual_set_stack_mapping() and OpenBSD helpers.
+OpenBSD declarations: virtual_set_stack_mapping(), and the OpenBSD fields
+and helpers from emulators/wine.
 
 Index: dlls/ntdll/unix/unix_private.h
 --- dlls/ntdll/unix/unix_private.h.orig
 +++ dlls/ntdll/unix/unix_private.h
-@@ -29,6 +29,22 @@
- #include "wine/list.h"
- #include "wine/debug.h"
- 
-+#if defined(__OpenBSD__) && defined(__x86_64__)
-+/* OpenBSD gives userland no way to set the %gs base; the TEB pointer lives
-+ * in a TLS slot of the loader instead (see gs_openbsd.c).  Read it from
-+ * there so that Unix code does not depend on the %gs fault-and-rewrite
-+ * path, which must not trigger for the first time inside a signal handler. */
-+extern long teb_tls_offset;
-+static inline TEB *openbsd_current_teb(void)
-+{
-+    TEB *teb;
-+
-+    __asm__ volatile( "movq %%fs:(%1),%0" : "=r" (teb) : "r" (teb_tls_offset) );
-+    return teb;
-+}
-+#define NtCurrentTeb() openbsd_current_teb()
-+#endif
-+
- struct msghdr;
- 
- typedef struct
-@@ -256,6 +272,9 @@ extern void process_exit_wrapper( int st
+@@ -256,6 +256,10 @@ extern void process_exit_wrapper( int st
  extern size_t server_init_process(void);
  extern void server_init_process_done(void);
  extern void server_init_thread( void *entry_point, BOOL *suspend );
 +#ifdef __OpenBSD__
 +extern void virtual_set_stack_mapping( void *start, SIZE_T size );
++extern BOOL virtual_is_readable_page( const void *addr );
 +#endif
  extern int server_pipe( int fd[2] );
  
  extern void fpux_to_fpu( I386_FLOATING_SAVE_AREA *fpu, const XSAVE_FORMAT *fpux );
-@@ -334,6 +353,21 @@ extern void virtual_fill_image_informati
+@@ -334,6 +338,21 @@ extern void virtual_fill_image_informati
  extern void *get_builtin_so_handle( void *module );
  extern NTSTATUS load_builtin_unixlib( void *module, const char *name );
  

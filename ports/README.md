@@ -20,4 +20,5 @@ docs/BUILDING.md) and build it with the usual `make package`.
 - Generated sources (`server_protocol.h`, syscall tables, winevulkan
   thunks) are created in `post-patch`, as Proton's own build does.
 
-Status: see docs/PROGRESS.md. Not yet compiled.
+Status: builds, packages and passes tests tiers 5–7 on OpenBSD 8.0 amd64
+(docs/TESTING.md). Build against the 8.0 release ports tree (docs/DECISIONS.md D5).

@@ -38,3 +38,26 @@ See FEASIBILITY.md §2. Revisit only with a kernel patch or an x86 emulator.
 
 `vm/id_ed25519` is generated per checkout for the VM only. The user's personal
 key is never copied into the guest. `vm/` is git-ignored.
+
+## D5 — Build against the 8.0 release ports tree, overlaying new ports (2026-10-20)
+
+Packaging emulators/wine from ports -current against 8.0 binary packages fails
+the framework's library check (`glib-2.0.4201.17` in the tree vs `.16`
+installed). That check is correct and is not bypassed. The VM uses the
+signify-verified `8.0/ports.tar.gz` as `/usr/ports` (-current kept as
+`/usr/ports-current`) with `emulators/wine` and `emulators/proton-wine`
+overlaid. Both port Makefiles work unchanged with the 8.0 framework.
+
+## D6 — proton-wine installs under ${LOCALBASE}/lib/proton-wine (2026-10-20)
+
+`PREFIX` is moved (gnu.port.mk always passes `--prefix=${PREFIX}`), giving a
+self-contained tree like Proton's `files/` directory that coexists with
+emulators/wine. Its man pages are therefore outside the default man path.
+
+## D7 — Port distfiles are upstream artefacts only (2026-10-20)
+
+emulators/proton-wine fetches Valve's tree by commit (GH_*), the Khronos
+registry files, and the clang PE headers; the OpenBSD changes are ports
+patches exported from `work/proton-port/wine` (`scripts/make-port-patches.sh`);
+generated sources are produced in `post-patch` like Proton's own build.
+Nothing locally generated is used as a distfile.

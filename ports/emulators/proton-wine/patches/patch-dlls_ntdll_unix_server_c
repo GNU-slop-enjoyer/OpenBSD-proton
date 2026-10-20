@@ -1,27 +1,36 @@
 OpenBSD specific client-server setup:
-
 Cross-process memory access. In upstream Wine server can read/write another
 process's memory with ptrace. On OpenBSD you can only ptrace your decendants.
 Wine Processes are not descendants of WineServer so new APC_COPY_MEMORY memory
 has the target process do the copy itself between its own memory and a shared
 with the caller memory section.
-
 The local NtReadVirtualMemory call handles both copy directions and faults:
 view to address for writes, address to view for reads.
-
 Added thread tid so server can name the target thread.
-
 Leave SIGUSR2 deliverable during server calls so waiting threads can
 still relay notifications; block it until the table and handlers are ready.
-
 For new threads, libpthread owns the native stack separately from Wine's
 signal-stack mapping. pthread_stackseg_np() returns the upper end; subtract
 the size to record the base used for Unix calls.
 
+Rebased: register every thread for the OpenBSD signal relay
+(add_signal_tid() in init_first_thread and init_thread) and include
+sig_openbsd.h.
+
 Index: dlls/ntdll/unix/server.c
 --- dlls/ntdll/unix/server.c.orig
 +++ dlls/ntdll/unix/server.c
-@@ -715,6 +715,40 @@ static void invoke_system_apc( const uni
+@@ -79,6 +79,9 @@
+ #include "wine/server.h"
+ #include "wine/debug.h"
+ #include "unix_private.h"
++#ifdef __OpenBSD__
++#include "sig_openbsd.h"
++#endif
+ #include "ddk/wdm.h"
+ 
+ #include "fsync.h"
+@@ -715,6 +718,40 @@ static void invoke_system_apc( const uni
          if (!self) NtClose( wine_server_ptr_handle(call->dup_handle.dst_process) );
          break;
      }
@@ -62,7 +71,7 @@ Index: dlls/ntdll/unix/server.c
      default:
          server_protocol_error( "get_apc_request: bad type %d\n", call->type );
          break;
-@@ -1555,6 +1589,8 @@ static int get_unix_tid(void)
+@@ -1555,6 +1592,8 @@ static int get_unix_tid(void)
      ret = lwpid;
  #elif defined(__DragonFly__)
      ret = lwp_gettid();
@@ -71,7 +80,7 @@ Index: dlls/ntdll/unix/server.c
  #endif
      return ret;
  }
-@@ -1641,9 +1677,18 @@ size_t server_init_process(void)
+@@ -1641,9 +1680,18 @@ size_t server_init_process(void)
      sigaddset( &server_block_set, SIGINT );
      sigaddset( &server_block_set, SIGHUP );
      sigaddset( &server_block_set, SIGUSR1 );
@@ -91,7 +100,7 @@ Index: dlls/ntdll/unix/server.c
  
      /* receive the first thread request fd on the main socket */
      data->request_fd = wine_server_receive_fd( &version );
-@@ -1685,6 +1730,9 @@ size_t server_init_process(void)
+@@ -1685,6 +1733,9 @@ size_t server_init_process(void)
              wine_server_add_data( req, cpu_override, sizeof(*cpu_override) );
          req->unix_pid    = getpid();
          req->unix_tid    = get_unix_tid();
@@ -101,7 +110,7 @@ Index: dlls/ntdll/unix/server.c
          req->reply_fd    = reply_pipe;
          req->wait_fd     = data->wait_fd[1];
          req->debug_level = (TRACE_ON(server) != 0);
-@@ -1715,6 +1763,18 @@ size_t server_init_process(void)
+@@ -1715,6 +1766,18 @@ size_t server_init_process(void)
  
      if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
  
@@ -120,7 +129,7 @@ Index: dlls/ntdll/unix/server.c
      if (!supported_machines_count)
          fatal_error( "'%s' is a 64-bit installation, it cannot be used with a 32-bit wineserver.\n",
                       config_dir );
-@@ -1776,6 +1836,16 @@ void server_init_process_done(void)
+@@ -1776,6 +1839,16 @@ void server_init_process_done(void)
      /* always send the native TEB */
      if (!(teb = NtCurrentTeb64())) teb = NtCurrentTeb();
  
@@ -137,3 +146,13 @@ Index: dlls/ntdll/unix/server.c
      /* Signal the parent process to continue */
      SERVER_START_REQ( init_process_done )
      {
+@@ -1820,6 +1893,9 @@ void server_init_thread( void *entry_poi
+     SERVER_START_REQ( init_thread )
+     {
+         req->unix_tid  = get_unix_tid();
++#ifdef __OpenBSD__
++        add_signal_tid( req->unix_tid );
++#endif
+         req->teb       = wine_server_client_ptr( teb );
+         req->entry     = wine_server_client_ptr( entry_point );
+         req->reply_fd  = reply_pipe;

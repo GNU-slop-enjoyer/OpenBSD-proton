@@ -46,10 +46,43 @@ with `OPENBSD_PUBKEY=`. `scripts/signify-verify.py` is a minimal signify
 Provisioning copies `upstream/ports` (minus `.git`) to `/usr/ports` and puts
 `WRKOBJDIR`, packages and distfiles under `/home` (the largest partition).
 
-## 4. Build the wine baseline (in the guest)
+Provisioning installs the release's `ports.tar.gz` (signify-verified) as
+`/usr/ports` and overlays `emulators/wine` (from ports -current) and this
+project's `ports/emulators/*`. /home is remounted `wxallowed`.
 
-    cd /usr/ports/emulators/wine && make package
+## 4. Build the ports (in the guest, detached from ssh)
 
-## 5. PE test programs (on the host)
+    scripts/vm/port-build.sh start emulators/wine package
+    scripts/vm/port-build.sh start emulators/proton-wine package
+    scripts/vm/port-build.sh status emulators/proton-wine
 
-    make -C tests/pe          # → build/tests/pe/basic.exe
+Each takes ~1.5–2 h at -j6 in the VM. Install locally built (unsigned)
+packages with:
+
+    doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add proton-wine
+
+proton-wine lives in `/usr/local/lib/proton-wine` (run
+`/usr/local/lib/proton-wine/bin/wine`).
+
+## 5. Iterating on proton-wine
+
+1. Edit `work/proton-port/wine` (git branch `openbsd`, a local clone of
+   Valve's wine at `e60892cc` with the OpenBSD commits), commit.
+2. For a quick rebuild copy changed files into the guest's WRKSRC:
+   `scripts/vm/sync-wrksrc.sh path/in/tree ...`, then
+   `scripts/vm/port-build.sh start emulators/proton-wine build`.
+3. Re-export the patches:
+
+       rm -rf build/src/git-orig build/src/git-new
+       mkdir -p build/src/git-orig build/src/git-new
+       git -C work/proton-port/wine archive e60892c | tar -C build/src/git-orig -xf -
+       git -C work/proton-port/wine archive HEAD | tar -C build/src/git-new -xf -
+       scripts/make-port-patches.sh build/src/git-orig build/src/git-new \
+           ports/emulators/proton-wine/patches upstream/ports/emulators/wine/patches
+
+4. Check unresolved symbols after installing:
+   `scripts/vm/check-undefined.sh /usr/local/lib/proton-wine` (copy it to the guest).
+
+## 6. PE test programs (on the host)
+
+    make -C tests/pe          # → build/tests/pe/{basic,gui}.exe

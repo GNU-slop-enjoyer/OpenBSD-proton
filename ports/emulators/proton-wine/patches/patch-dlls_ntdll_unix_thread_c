@@ -6,6 +6,7 @@ libpthread-allocated stack, recorded as kernel_stack at thread start with
 pthread_stackseg_np(); only the initial thread gets a Wine kernel stack.
 (Rebased for Proton's wine 11.0 layout; emulators/wine does this in
 server_init_thread() for 11.19.)
+Threads leave the signal relay registry in pthread_exit_wrapper().
 
 Index: dlls/ntdll/unix/thread.c
 --- dlls/ntdll/unix/thread.c.orig
@@ -20,7 +21,27 @@ Index: dlls/ntdll/unix/thread.c
  #include <signal.h>
  #include <sys/types.h>
  #include <unistd.h>
-@@ -1127,6 +1130,19 @@ static void start_thread( TEB *teb )
+@@ -76,6 +79,9 @@
+ #include "wine/server.h"
+ #include "wine/debug.h"
+ #include "unix_private.h"
++#ifdef __OpenBSD__
++#include "sig_openbsd.h"
++#endif
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(thread);
+ WINE_DECLARE_DEBUG_CHANNEL(seh);
+@@ -1110,6 +1116,9 @@ static DECLSPEC_NORETURN void pthread_ex
+     close( ntdll_get_thread_data()->wait_fd[1] );
+     close( ntdll_get_thread_data()->reply_fd );
+     close( ntdll_get_thread_data()->request_fd );
++#ifdef __OpenBSD__
++    remove_signal_tid();
++#endif
+     pthread_exit( UIntToPtr(status) );
+ }
+ 
+@@ -1127,6 +1136,19 @@ static void start_thread( TEB *teb )
      thread_data->syscall_table = KeServiceDescriptorTable;
      thread_data->syscall_trace = TRACE_ON(syscall);
      thread_data->pthread_id = pthread_self();
@@ -40,7 +61,7 @@ Index: dlls/ntdll/unix/thread.c
      pthread_setspecific( teb_key, teb );
      server_init_thread( thread_data->start, &suspend );
      signal_start_thread( thread_data->start, thread_data->param, suspend, teb );
-@@ -1208,9 +1224,17 @@ NTSTATUS init_thread_stack( TEB *teb, UL
+@@ -1208,9 +1230,17 @@ NTSTATUS init_thread_stack( TEB *teb, UL
      NTSTATUS status;
  
      /* kernel stack */
@@ -61,7 +82,7 @@ Index: dlls/ntdll/unix/thread.c
  
      if (wow_teb)
      {
-@@ -1444,7 +1468,12 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE
+@@ -1444,7 +1474,12 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE
      thread_data->param = param;
  
      pthread_attr_init( &pthread_attr );
@@ -74,7 +95,7 @@ Index: dlls/ntdll/unix/thread.c
      pthread_attr_setguardsize( &pthread_attr, 0 );
      pthread_attr_setscope( &pthread_attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
      InterlockedIncrement( &nb_threads );
-@@ -2071,7 +2100,7 @@ static void set_native_thread_name( HAND
+@@ -2071,7 +2106,7 @@ static void set_native_thread_name( HAND
      len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
      nameA[len] = '\0';
      pthread_setname_np( nameA );
@@ -83,7 +104,7 @@ Index: dlls/ntdll/unix/thread.c
      unsigned int status;
      char nameA[64];
      int unix_pid, unix_tid, len;
-@@ -2098,9 +2127,13 @@ static void set_native_thread_name( HAND
+@@ -2098,9 +2133,13 @@ static void set_native_thread_name( HAND
          return;
      }
  
