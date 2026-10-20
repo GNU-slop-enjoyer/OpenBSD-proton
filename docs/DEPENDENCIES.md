@@ -32,8 +32,8 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 | Component | Submodule commit | OpenBSD status |
 |---|---|---|
 | wine (Valve fork) | `e60892cc` | not fetched; needs OpenBSD patch rebase |
-| dxvk | `a6764047` | not fetched; PE-only, needs port |
-| vkd3d-proton | `212991fc` | not fetched; PE-only, needs port |
+| dxvk | `a6764047` | fetched (shallow, with submodules); needs Windows-target C++ toolchain (no mingw-w64 in ports) |
+| vkd3d-proton | `212991fc` | not fetched; same toolchain need as dxvk |
 | vkd3d | `1128125f` | upstream vkd3d already bundled in wine |
 | Vulkan-Headers, SPIRV-Headers, glslang | — | pkg-8.0 (vulkan-headers 1.4.357.0); glslang to check |
 | gstreamer, ffmpeg, orc, dav1d, graphene, libsoup | — | use OpenBSD ports |
@@ -52,3 +52,11 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 | 32-bit user code segment (WoW64) | 32-bit PE | **blocked** — see FEASIBILITY.md §2 |
 | user-settable `%gs` base | Windows TEB | absent; emulated by fault-and-rewrite patch |
 | W\|X mappings | wine loader/JIT | allowed via `USE_WXNEEDED` (wxallowed mount) |
+
+## Toolchain
+
+| Item | Status |
+|---|---|
+| clang-22 PE (x86_64-windows, wine headers) | used by wine port (`files/clang-pe`) |
+| mingw-w64 headers/CRT + libc++/libunwind for x86_64-w64-mingw32 | **missing** in ports; needed for dxvk/vkd3d-proton source builds |
+| Mesa Vulkan ICDs in 8.0 xenocara | anv, hasvk, radv present; no lavapipe |

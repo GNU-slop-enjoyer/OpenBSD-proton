@@ -1,0 +1,421 @@
+This file updates some OpenBSD-isms.
+
+(1 How to handle registers (Wine defines) and T_MCHK and T_XMMFLT
+(2 sigcontext fixup - OpenBSD zeroes sc_trapno and sc_err. This is needed
+ for Page fault error code. Page Faults are first checked by %gs handler
+ and SIGSEGV && SIGUSR1 eject from the Stub.
+(3 SIGUSR2 relay for queued thread signals (see sig handling changesets)
+(4 syscall dispatchers that are defined in ntdll and use %gs we can fix
+ ourselves. LOAD_TEB is a helper that loads TEB pointer into a registers
+ of our choice
+(5 Proton's wine 11.0 handlers take only the ucontext; set_thread_teb()
+ stores the TEB in the loader TLS slot on OpenBSD (it called Linux
+ arch_prctl() unconditionally) and initialises the slot offset on first
+ use, before signal_init_process().
+
+Index: dlls/ntdll/unix/signal_x86_64.c
+--- dlls/ntdll/unix/signal_x86_64.c.orig
++++ dlls/ntdll/unix/signal_x86_64.c
+@@ -30,6 +30,7 @@
+ #include <errno.h>
+ #include <pthread.h>
+ #include <signal.h>
++#include <errno.h>
+ #include <stdlib.h>
+ #include <stdarg.h>
+ #include <stdio.h>
+@@ -92,6 +93,8 @@ extern void _thread_set_tsd_base(uint64_
+ #include "wine/list.h"
+ #include "wine/asm.h"
+ #include "unix_private.h"
++#include "gs_openbsd.h"
++#include "sig_openbsd.h"
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(unwind);
+@@ -269,6 +272,44 @@ __ASM_GLOBAL_FUNC( modify_ldt,
+ #define FPU_sig(context)    ((void *)((context)->uc_mcontext.__fpregs))
+ #define XState_sig(context) NULL
+ 
++#elif defined(__OpenBSD__)
++
++#include <machine/trap.h>
++
++/* OpenBSD names T_MCHK and T_XMMFLT differently */
++#define T_MCHK      T_MCA
++#define T_XMMFLT    T_XMM
++
++/* Pretty much same as FreeBSD but context has registers directly there */
++#define RAX_sig(context)     ((context)->sc_rax)
++#define RBX_sig(context)     ((context)->sc_rbx)
++#define RCX_sig(context)     ((context)->sc_rcx)
++#define RDX_sig(context)     ((context)->sc_rdx)
++#define RSI_sig(context)     ((context)->sc_rsi)
++#define RDI_sig(context)     ((context)->sc_rdi)
++#define RBP_sig(context)     ((context)->sc_rbp)
++#define R8_sig(context)      ((context)->sc_r8)
++#define R9_sig(context)      ((context)->sc_r9)
++#define R10_sig(context)     ((context)->sc_r10)
++#define R11_sig(context)     ((context)->sc_r11)
++#define R12_sig(context)     ((context)->sc_r12)
++#define R13_sig(context)     ((context)->sc_r13)
++#define R14_sig(context)     ((context)->sc_r14)
++#define R15_sig(context)     ((context)->sc_r15)
++#define CS_sig(context)      ((context)->sc_cs)
++#define DS_sig(context)      ((context)->sc_ds)
++#define ES_sig(context)      ((context)->sc_es)
++#define FS_sig(context)      ((context)->sc_fs)
++#define GS_sig(context)      ((context)->sc_gs)
++#define SS_sig(context)      ((context)->sc_ss)
++#define EFL_sig(context)     ((context)->sc_rflags)
++#define RIP_sig(context)     ((context)->sc_rip)
++#define RSP_sig(context)     ((context)->sc_rsp)
++#define TRAP_sig(context)    ((context)->sc_trapno)
++#define ERROR_sig(context)   ((context)->sc_err)
++#define FPU_sig(context)     ((void *)((context)->sc_fpstate))
++#define XState_sig(context)  NULL
++
+ #elif defined (__APPLE__)
+ 
+ #include <i386/user_ldt.h>
+@@ -536,7 +577,7 @@ static unsigned int frame_size;
+ static unsigned int xstate_size = sizeof(XSAVE_AREA_HEADER);
+ static UINT64 xstate_extended_features;
+ 
+-#if defined(__linux__) || defined(__APPLE__)
++#if defined(__linux__) || defined(__APPLE__) || defined(__OpenBSD__)
+ static inline TEB *get_current_teb(void)
+ {
+     unsigned long rsp;
+@@ -914,6 +955,64 @@ __ASM_GLOBAL_FUNC( clear_alignment_flag,
+                    "ret" )
+ 
+ 
++#ifdef __OpenBSD__
++/***********************************************************************
++ *           is_breakpoint_trap
++ *
++ * OpenBSD reports int3 and single-step traps alike.
++ */
++static BOOL is_breakpoint_trap( ucontext_t *sigcontext )
++{
++    const BYTE *ip = (const BYTE *)RIP_sig(sigcontext);
++
++    if (EFL_sig(sigcontext) & 0x100) return FALSE;
++    /* not in a view - then can only be a breakpoint */
++    if (!virtual_is_readable_page( ip - 1 )) return TRUE;
++    if (ip[-1] == 0xcc) return TRUE; /* int3 */
++    return virtual_is_readable_page( ip - 2 ) && ip[-2] == 0xcd && ip[-1] == 0x03; /* int $3 */
++}
++
++/***********************************************************************
++ *           fixup_sigcontext
++ *
++ * OpenBSD always zeroes sc_trapno and sc_err, rebuild them from the siginfo.
++ */
++static void fixup_sigcontext( siginfo_t *siginfo, ucontext_t *sigcontext )
++{
++    TRAP_sig(sigcontext) = siginfo->si_trapno;
++    ERROR_sig(sigcontext) = 0;
++    if (siginfo->si_signo == SIGTRAP)
++    {
++        TRAP_sig(sigcontext) = is_breakpoint_trap( sigcontext ) ? T_BPTFLT : T_TRCTRAP;
++        return;
++    }
++
++    if (siginfo->si_trapno == T_PROTFLT)
++    {
++        /* an int $n without a user gate faults with error code of an IDT selector */
++        const BYTE *ip = (const BYTE *)RIP_sig(sigcontext);
++
++        if (virtual_is_readable_page( ip ) && virtual_is_readable_page( ip + 1 ) && ip[0] == 0xcd)
++            ERROR_sig(sigcontext) = (ip[1] << 3) | 2;
++        return;
++    }
++
++    if (siginfo->si_signo != SIGSEGV || siginfo->si_trapno != T_PAGEFLT) return;
++
++    /* Error Code for page fault - user mode, protection violation, write, instruction fetch */
++    ERROR_sig(sigcontext) = 0x04;
++    if (siginfo->si_code == SEGV_ACCERR) ERROR_sig(sigcontext) |= 0x01;
++
++    /* instruction fetch? next page instruction fetch? */
++    if ((ULONG_PTR)siginfo->si_addr - RIP_sig(sigcontext) < 16) ERROR_sig(sigcontext) |= 0x10;
++
++    /* a read can only fail with SEGV_ACCERR on an unreadable page */
++    else if (siginfo->si_code == SEGV_ACCERR && virtual_is_readable_page( siginfo->si_addr ))
++        ERROR_sig(sigcontext) |= 0x02;
++}
++#endif /* __OpenBSD__ */
++
++
+ /***********************************************************************
+  *           init_handler
+  */
+@@ -2588,6 +2687,21 @@ static BOOL handle_syscall_trap( ucontex
+     return TRUE;
+ }
+ 
++/***********************************************************************
++ *           handle_gs_fault
++ *
++ * OpenBSD can't point %gs at the TEB
++ */
++#if defined(__OpenBSD__)
++static BOOL handle_gs_fault( ucontext_t *ucontext, ULONG_PTR fault_addr )
++{
++    if (!is_signal_thread()) return FALSE;
++    if (CS_sig(ucontext) != cs64_sel) return FALSE;
++    if (((ERROR_sig(ucontext) >> 1) & 0x09) == EXCEPTION_EXECUTE_FAULT) return FALSE;
++    return gs_handle_fault( ucontext, fault_addr );
++}
++#endif
++
+ 
+ /***********************************************************************
+  *           check_invalid_gsbase
+@@ -2696,6 +2810,10 @@ static void segv_handler( int signal, si
+     struct xcontext context;
+     void *steamclient_addr = NULL;
+ 
++#ifdef __OpenBSD__
++    fixup_sigcontext( siginfo, ucontext );
++    gs_leave_stub( ucontext );
++#endif
+     rec.ExceptionAddress = (void *)RIP_sig(ucontext);
+     save_context( &context, ucontext );
+ 
+@@ -2737,7 +2855,12 @@ static void segv_handler( int signal, si
+         rec.NumberParameters = 2;
+         rec.ExceptionInformation[0] = (ERROR_sig(ucontext) >> 1) & 0x09;
+         rec.ExceptionInformation[1] = (ULONG_PTR)siginfo->si_addr;
++#ifdef __OpenBSD__
++        if (!virtual_handle_fault( &rec, (void *)RSP_sig(ucontext) ) ||
++            handle_gs_fault( ucontext, (ULONG_PTR)siginfo->si_addr ))
++#else
+         if (!virtual_handle_fault( &rec, (void *)RSP_sig(ucontext) ) || check_invalid_gsbase( ucontext ))
++#endif
+         {
+             leave_handler( ucontext );
+             return;
+@@ -2792,6 +2915,9 @@ static void trap_handler( int signal, si
+     EXCEPTION_RECORD rec = { 0 };
+     struct xcontext context;
+ 
++#ifdef __OpenBSD__
++    fixup_sigcontext( siginfo, ucontext );
++#endif
+     if (handle_syscall_trap( ucontext, siginfo )) return;
+ 
+     rec.ExceptionAddress = (void *)RIP_sig(ucontext);
+@@ -2826,6 +2952,9 @@ static void fpe_handler( int signal, sig
+     EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)RIP_sig(ucontext) };
+     struct xcontext context;
+ 
++#ifdef __OpenBSD__
++    fixup_sigcontext( siginfo, ucontext );
++#endif
+     save_context( &context, sigcontext );
+ 
+     switch (siginfo->si_code)
+@@ -2878,9 +3007,15 @@ static void fpe_handler( int signal, sig
+  */
+ static void int_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ {
+-    ucontext_t *ucontext = init_handler( sigcontext );
++    ucontext_t *ucontext;
+     HANDLE handle;
+ 
++#ifdef __OpenBSD__
++    /* An external SIGINT can also reach a native thread without Wine data. */
++    if (!is_signal_thread()) return;
++#endif
++    ucontext = init_handler( sigcontext );
++
+     if (p__wine_ctrl_routine)
+     {
+         if (!NtCreateThreadEx( &handle, THREAD_ALL_ACCESS, NULL, NtCurrentProcess(),
+@@ -2912,7 +3047,15 @@ static void abrt_handler( int signal, si
+  */
+ static void quit_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ {
+-    ucontext_t *ucontext = init_handler( sigcontext );
++    ucontext_t *ucontext;
++
++#ifdef __OpenBSD__
++    /* The relay uses thrkill() to deliver SIGQUIT to a registered Wine thread.
++     * Signal dispositions are process-wide, so an external SIGQUIT can also
++     * reach a native thread with no Wine signal stack or thread data. */
++    if (!is_signal_thread()) return;
++#endif
++    ucontext = init_handler( sigcontext );
+ 
+     if (!is_inside_syscall( RSP_sig(ucontext) )) user_mode_abort_thread( 0, get_syscall_frame() );
+     abort_thread( 0 );
+@@ -2926,7 +3069,16 @@ static void quit_handler( int signal, si
+  */
+ static void usr1_handler( int signal, siginfo_t *siginfo, void *sigcontext )
+ {
+-    ucontext_t *ucontext = init_handler( sigcontext );
++    ucontext_t *ucontext;
++
++#ifdef __OpenBSD__
++    if (!is_signal_thread()) return;
++#endif
++    ucontext = init_handler( sigcontext );
++#ifdef __OpenBSD__
++    /* suspended in a gs stub? Leave */
++    gs_leave_stub( ucontext );
++#endif
+ 
+     if (is_inside_syscall( RSP_sig(ucontext) ))
+     {
+@@ -2986,6 +3138,20 @@ static void usr1_handler( int signal, si
+ }
+ 
+ 
++#ifdef __OpenBSD__
++/**********************************************************************
++ *		usr2_handler
++ *
++ * Handler for SIGUSR2, used to relay queued server signals.
++ */
++static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
++{
++    /* The relay can run on native threads without Wine thread data. */
++    forward_thread_signal();
++}
++#endif
++
++
+ #ifdef __APPLE__
+ /**********************************************************************
+  *		sigsys_handler
+@@ -3140,6 +3306,9 @@ void signal_init_process(void)
+     struct ntdll_thread_data *thread_data = ntdll_get_thread_data();
+     void *ptr, *kernel_stack = (char *)thread_data->kernel_stack + kernel_stack_size;
+ 
++#ifdef __OpenBSD__
++    gs_init_process();
++#endif
+     if (user_shared_data->XState.Size) xstate_size = user_shared_data->XState.Size - sizeof(XSAVE_FORMAT);
+     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
+ 
+@@ -3171,12 +3340,18 @@ void signal_init_process(void)
+     if (sigaction( SIGINT, &sig_act, NULL ) == -1) goto error;
+     sig_act.sa_sigaction = fpe_handler;
+     if (sigaction( SIGFPE, &sig_act, NULL ) == -1) goto error;
++#ifndef __OpenBSD__
+     sig_act.sa_sigaction = abrt_handler;
+     if (sigaction( SIGABRT, &sig_act, NULL ) == -1) goto error;
++#endif
+     sig_act.sa_sigaction = quit_handler;
+     if (sigaction( SIGQUIT, &sig_act, NULL ) == -1) goto error;
+     sig_act.sa_sigaction = usr1_handler;
+     if (sigaction( SIGUSR1, &sig_act, NULL ) == -1) goto error;
++#ifdef __OpenBSD__
++    sig_act.sa_sigaction = usr2_handler;
++    if (sigaction( SIGUSR2, &sig_act, NULL ) == -1) goto error;
++#endif
+     sig_act.sa_sigaction = trap_handler;
+     if (sigaction( SIGTRAP, &sig_act, NULL ) == -1) goto error;
+     sig_act.sa_sigaction = segv_handler;
+@@ -3197,7 +3372,13 @@ void signal_init_process(void)
+ 
+ void set_thread_teb( TEB *teb )
+ {
++#ifdef __OpenBSD__
++    /* called for the initial thread before signal_init_process() */
++    if (!teb_tls_offset) gs_init_process();
++    gs_set_thread_teb( teb );
++#else
+     arch_prctl( ARCH_SET_GS, teb );
++#endif
+ }
+ 
+ /***********************************************************************
+@@ -3225,6 +3406,8 @@ void init_syscall_frame( LPTHREAD_START_
+     amd64_set_gsbase( teb );
+ #elif defined(__NetBSD__)
+     sysarch( X86_64_SET_GSBASE, &teb );
++#elif defined(__OpenBSD__)
++    gs_set_thread_teb( teb );
+ #elif defined (__APPLE__)
+     thread_data->pthread_teb = mac_thread_gsbase();
+ #else
+@@ -3347,7 +3530,12 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
+  */
+ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+                    __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_gs_load") ":\n\t"
++#ifdef __OpenBSD__
++                   LOAD_TEB("%rcx")
++                   "movq 0x378(%rcx),%rcx\n\t"     /* thread_data->syscall_frame OpenBSD case */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3378,7 +3566,11 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
+                    "movw %ss,0x90(%rcx)\n\t"
+                    "movq %rbp,0x98(%rcx)\n\t"
+                    __ASM_CFI_REG_IS_AT2(rbp, rcx, 0x98, 0x01)
++#ifdef __OpenBSD__
++                   LOAD_TEB("%r13")                /* teb */
++#else
+                    "movq %gs:0x30,%r13\n\t"        /* teb */
++#endif
+                    "movl %eax,0xb0(%rcx)\n\t"      /* frame->syscall_id */
+                    /* Legends of Runeterra hooks the first system call return instruction, and
+                     * depends on us returning to it. Adjust the return address accordingly. */
+@@ -3597,7 +3789,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
+                    "popfq\n\t"
+                    "iretq\n"
+                    /* RESTORE_FLAGS_INSTRUMENTATION */
++#ifdef __OpenBSD__
++                   "2:\t" LOAD_TEB("%r10")
++                   "movq 0x330(%r10),%r10\n\t" /* amd64_thread_data()->instrumentation_callback */
++#else
+                    "2:\tmovq %gs:0x330,%r10\n\t"  /* amd64_thread_data()->instrumentation_callback */
++#endif
+                    "movq (%r10),%r10\n\t"
+                    "test %r10,%r10\n\t"
+                    "jz 3b\n\t"
+@@ -3656,7 +3853,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
+                    "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
+ 
+ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumentation,
++#ifdef __OpenBSD__
++                   LOAD_TEB("%rcx")
++                   "movq 0x378(%rcx), %rcx\n\t"    /* thread_data->syscall_frame */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3674,7 +3876,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
+ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
+                    "movq %rcx,%r10\n\t"
+                    __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_gs_load") ":\n\t"
++#ifdef __OpenBSD__
++                   LOAD_TEB("%rcx")
++                   "movq 0x378(%rcx), %rcx\n\t"    /* thread_data->syscall_frame */
++#else
+                    "movq %gs:0x378,%rcx\n\t"       /* thread_data->syscall_frame */
++#endif
+                    "popq 0x70(%rcx)\n\t"           /* frame->rip */
+                    __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
+                    __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
+@@ -3698,7 +3905,11 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_disp
+                    __ASM_CFI_CFA_IS_AT2(rcx, 0x88, 0x01)
+                    "movq %rbp,0x98(%rcx)\n\t"
+                    __ASM_CFI_REG_IS_AT2(rbp, rcx, 0x98, 0x01)
++#ifdef __OpenBSD__
++                   LOAD_TEB("%r13")
++#else
+                    "movq %gs:0x30,%r13\n\t"
++#endif
+                    "stmxcsr 0xd8(%rcx)\n\t"        /* frame->xsave.MxCsr */
+                    "movdqa %xmm6,0x1c0(%rcx)\n\t"
+                    "movdqa %xmm7,0x1d0(%rcx)\n\t"

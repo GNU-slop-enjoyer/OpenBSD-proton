@@ -50,3 +50,9 @@ root 'grep -q "^builder:" /etc/login.conf ||
 	printf "builder:\\\\\n\t:datasize=infinity:maxproc=512:openfiles=4096:tc=default:\n" >> /etc/login.conf
 	usermod -L builder builder'
 root 'df -h; sysctl -n kern.version hw.ncpu hw.physmem'
+
+# USE_WXNEEDED ports (emulators/wine) must build on a wxallowed filesystem;
+# WRKOBJDIR lives on /home.
+root 'grep -q " /home ffs .*wxallowed" /etc/fstab ||
+	{ sed -i "/ \/home ffs /s/rw,/rw,wxallowed,/" /etc/fstab &&
+	  mount -u -o wxallowed /home; }; mount | grep " /home "'

@@ -77,13 +77,27 @@ relevance:
 | proton (python script), default_pfx, fonts | data/script | Portable; script assumes Steam env vars |
 | wine-mono, wine-gecko | PE | Prebuilt PE; portable |
 
-## 4. Graphics — open question, needs hardware test
+## 4. Graphics — drivers exist, needs hardware test
 
-Wine port links `vulkan` (graphics/vulkan-loader) and builds with
-`--with-vulkan`. DXVK requires Vulkan 1.3-class features. OpenBSD's Mesa
-(xenocara) driver support for radv/anv on the actual test hardware is not yet
-verified. The QEMU VM has no GPU passthrough → D3D/Vulkan tests need real
-hardware or a software rasterizer (lavapipe) if Mesa on OpenBSD ships it.
+Wine port links `vulkan` (graphics/vulkan-loader 1.4.357 in 8.0 packages) and
+builds with `--with-vulkan`. OpenBSD 8.0 xenocara ships Mesa Vulkan ICDs
+(verified in the VM, `/usr/X11R6/share/vulkan/icd.d/`): `intel_icd`
+(anv), `intel_hasvk_icd` (older Intel), `radeon_icd` (radv). **No lavapipe**
+(software Vulkan) is shipped, and the QEMU VM has no GPU, so DXVK and
+vkd3d-proton runtime tests need real Intel/AMD hardware. NVIDIA: no driver.
+
+## 4a. Building DXVK / vkd3d-proton — needs a Windows-target C++ toolchain
+
+DXVK (`upstream/Proton/dxvk` @ `a6764047`, meson cross files
+`build-win64.txt` → `x86_64-w64-mingw32-g++`) and vkd3d-proton are C++20
+Windows DLLs. OpenBSD ports has **no mingw-w64** (verified:
+no `*mingw*` port; wine's PE side uses plain clang with wine's own headers
+and CRT via `files/clang-pe`). Wine provides no C++ standard library for PE
+code. Building from source on OpenBSD therefore requires a new toolchain
+port in the style of llvm-mingw: mingw-w64 headers + CRT, compiler-rt
+builtins, libunwind, libc++abi and libc++ for `x86_64-w64-mingw32`, all
+built with the base/ports clang and lld. Fallback for runtime testing:
+upstream DXVK release DLLs (PE binaries are host-OS-independent).
 
 ## 5. Steam integration — not available
 

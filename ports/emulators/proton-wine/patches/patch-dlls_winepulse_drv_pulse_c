@@ -1,0 +1,41 @@
+Let PulseAudio's sndio module queue more than the application buffer
+(sndio pulls data in large bursts), and skip PTHREAD_MUTEX_ROBUST which
+OpenBSD lacks.  emulators/wine's timer-loop catch-up change is not needed:
+Proton drives periods from pa_context_rttime absolute deadlines.
+
+Index: dlls/winepulse.drv/pulse.c
+--- dlls/winepulse.drv/pulse.c.orig
++++ dlls/winepulse.drv/pulse.c
+@@ -194,6 +194,7 @@ static void free_phys_device_lists(void)
+             free(dev->name);
+             free(dev);
+         }
++        list_init(*list);
+     } while (*(++list));
+ }
+ 
+@@ -269,7 +270,11 @@ static NTSTATUS pulse_process_attach(voi
+ 
+     pthread_mutexattr_init(&attr);
+     pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
++
++#ifdef PTHREAD_MUTEX_ROBUST
++    /* OpenBSD has no PTHREAD_MUTEX_ROBUST */
+     pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
++#endif
+ 
+     if (pthread_mutex_init(&pulse_mutex, &attr) != 0)
+         pthread_mutex_init(&pulse_mutex, NULL);
+@@ -1177,7 +1182,12 @@ static HRESULT pulse_stream_connect(stru
+     /* PulseAudio will fill in correct values */
+     attr.minreq = attr.fragsize = period_bytes;
+     attr.tlength = period_bytes * 3;
++#ifdef __OpenBSD__
++    /* Let PulseAudio sndio queue more than the app buffer. This is because OpenBSD's sndio pulls data in large bursts.*/
++    attr.maxlength = -1;
++#else
+     attr.maxlength = stream->bufsize_frames * pa_frame_size(&stream->ss);
++#endif
+     attr.prebuf = pa_frame_size(&stream->ss);
+     dump_attr(&attr);
+ 

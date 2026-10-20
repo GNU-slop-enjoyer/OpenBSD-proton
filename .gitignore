@@ -31,3 +31,6 @@ dist/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Local work trees (their changes are exported as ports patches)
+/work/proton-port/wine/
