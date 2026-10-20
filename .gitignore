@@ -1,0 +1,21 @@
+# Upstream source checkouts
+upstream/
+
+# OpenBSD release sets and source archives
+openbsd-sets/
+
+# Build output
+build/
+dist/
+*.o
+*.core
+
+# Credentials
+.env
+.env.*
+!.env.example
+
+# Editor and temporary files
+*~
+*.swp
+*.swo
