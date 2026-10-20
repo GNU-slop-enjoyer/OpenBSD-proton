@@ -1,0 +1,17 @@
+LIBRARY kernel32.dll
+EXPORTS
+CloseHandle
+CreateFileA
+CreateThread
+DeleteFileA
+ExitProcess
+GetCurrentThreadId
+GetExitCodeThread
+GetStdHandle
+GetTempPathA
+ReadFile
+VirtualAlloc
+VirtualFree
+VirtualProtect
+WaitForSingleObject
+WriteFile
