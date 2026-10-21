@@ -6,10 +6,13 @@
 # without building a second LLVM.
 #
 # usage: mingw-w64-build.sh step ...
-#   steps: wrappers headers crt builtins winpthreads runtimes
+#   steps: wrappers headers crt builtins winpthreads runtimes widl
+#          widl_install
 # Environment:
 #   TC_PREFIX   toolchain directory the wrappers point to
 #   TC_DESTDIR  fake root to write into (default: none)
+#   WIDL_PREFIX prefix widl is configured for (default: TC_PREFIX); widl
+#               looks for IDL files in WIDL_PREFIX/x86_64-w64-mingw32/include
 #   MINGW_SRC   extracted mingw-w64-vN source
 #   LLVM_SRC    extracted llvm-project-N.src source
 #   LLVM        installed LLVM (e.g. /usr/local/llvm22)
@@ -102,6 +105,19 @@ winpthreads() {
 	gmake -j"$MAKE_JOBS"
 	gmake install
 	rm -f "$SYSROOT"/lib/*.la
+}
+
+widl() {
+	# Native IDL compiler, as x86_64-w64-mingw32-widl (vkd3d-proton).
+	rm -rf "$BUILD_DIR/widl"; mkdir "$BUILD_DIR/widl"; cd "$BUILD_DIR/widl"
+	"$MINGW_SRC/mingw-w64-tools/widl/configure" --target=$TARGET \
+	    --prefix="${WIDL_PREFIX:-$TC_PREFIX}"
+	gmake -j"$MAKE_JOBS"
+}
+
+widl_install() {
+	cd "$BUILD_DIR/widl"
+	gmake install DESTDIR="$TC_DESTDIR"
 }
 
 cmake_cross() {

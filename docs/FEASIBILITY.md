@@ -107,7 +107,9 @@ llvm-mingw recipe without a second LLVM build. Two OpenBSD-specific points
 Result: DXVK 2.7.1 at Proton's commit builds natively on OpenBSD 8.0 as
 `ports/graphics/dxvk` and runs under proton-wine up to Vulkan instance
 creation, which fails only because the VM has no Vulkan device
-(TESTING.md). vkd3d-proton: not started; same toolchain.
+(TESTING.md). vkd3d-proton at Proton's commit builds the same way
+(`ports/graphics/vkd3d-proton`, using the toolchain's `widl`) and also stops
+only at the missing Vulkan device.
 
 ## 5. Steam integration — not available
 

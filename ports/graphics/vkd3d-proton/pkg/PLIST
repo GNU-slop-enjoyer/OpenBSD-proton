@@ -1,0 +1,6 @@
+lib/vkd3d-proton/
+lib/vkd3d-proton/x64/
+lib/vkd3d-proton/x64/d3d12.dll
+lib/vkd3d-proton/x64/d3d12core.dll
+share/doc/vkd3d-proton/
+share/doc/vkd3d-proton/README.md

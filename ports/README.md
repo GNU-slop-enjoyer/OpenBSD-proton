@@ -44,3 +44,13 @@ commits).
 - Patch: `src/util/util_singleton.h` — null instance after a failed first
   construction (not fixed upstream as of 2026-10-21; candidate to send).
 - License: zlib (dxvk), MIT and LGPL 2.1+ for bundled headers.
+
+## graphics/vkd3d-proton
+
+- Source: `github.com/HansKristian-Work/vkd3d-proton` commit `212991fc2c`
+  (3.0+), the `vkd3d-proton` submodule of Proton `proton-11.0-2e`, plus the
+  submodules its meson build uses (dxil-spirv's SPIRV-Cross/SPIRV-Tools are
+  CMake-only and left out).
+- No patches; `post-patch` sets meson's vcs_tag fallback to the commit so
+  the build id (shader cache key) is right without `.git`.
+- License: LGPL 2.1+ (vkd3d-proton), MIT/zlib/Apache for bundled code.

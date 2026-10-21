@@ -17,7 +17,7 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [x] Prerequisite: Windows-target C++ toolchain port `devel/mingw-w64` (mingw-w64 headers/CRT/winpthreads + compiler-rt, libunwind, libc++ for x86_64-w64-mingw32, on the installed llvm-22)
 - [x] `graphics/dxvk` port at Proton's pinned `a6764047` (meson cross-build); packaged; runs up to Vulkan instance creation in the VM
 - [ ] DXVK D3D11 rendering test on real hardware
-- [ ] `emulators/vkd3d-proton` port at `212991fc`
+- [x] `graphics/vkd3d-proton` port at `212991fc`; packaged; loads and fails cleanly without a Vulkan device
 - [ ] Vulkan on real hardware (radv/anv in 8.0 xenocara); no lavapipe in 8.0, no GPU in the VM
 
 ## M3 — Valve wine fork (Stage C)

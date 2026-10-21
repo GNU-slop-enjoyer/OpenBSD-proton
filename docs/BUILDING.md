@@ -93,16 +93,21 @@ proton-wine lives in `/usr/local/lib/proton-wine` (run
     doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add mingw-w64
     cd /usr/ports/graphics/dxvk && make package      # ~5 min
     doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add dxvk
+    cd /usr/ports/graphics/vkd3d-proton && make package
+    doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add vkd3d-proton
 
 Build dependencies from 8.0 packages: cmake, ninja, meson, glslang (part of
 `scripts/vm/provision.sh` from session 2 on; install them with `pkg_add` on
-an older VM). Copy `ports/devel/mingw-w64` and `ports/graphics/dxvk` into
+an older VM). Copy `ports/devel/mingw-w64`, `ports/graphics/dxvk` and
+`ports/graphics/vkd3d-proton` into
 `/usr/ports` first (same as the other overlays).
 
 Using DXVK in a prefix:
 
     cp /usr/local/lib/dxvk/x64/*.dll "$WINEPREFIX/drive_c/windows/system32/"
     WINEDLLOVERRIDES="d3d8,d3d9,d3d10core,d3d11,dxgi=n" wine program.exe
+    # Direct3D 12: also copy /usr/local/lib/vkd3d-proton/x64/*.dll and add
+    # d3d12,d3d12core=n
 
 ## 8. Wine conformance tests (in the guest)
 

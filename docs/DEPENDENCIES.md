@@ -33,7 +33,7 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 |---|---|---|
 | wine (Valve fork) | `e60892cc` | **ported**: `emulators/proton-wine` (54 patches) |
 | dxvk | `a6764047` (2.7.1) | **ported**: `graphics/dxvk` (submodules as GitHub-archive distfiles, 1 patch); builds with `devel/mingw-w64`; runtime needs a Vulkan device |
-| vkd3d-proton | `212991fc` | not fetched; toolchain now available (`devel/mingw-w64`) |
+| vkd3d-proton | `212991fc` (3.0) | **ported**: `graphics/vkd3d-proton` (needs widl, from `devel/mingw-w64`); runtime needs a Vulkan device |
 | vkd3d | `1128125f` | upstream vkd3d already bundled in wine |
 | Vulkan-Headers, SPIRV-Headers, glslang | — | dxvk uses its own pinned submodules; glslang-16.5.0 (pkg-8.0) provides `glslangValidator` |
 | gstreamer, ffmpeg, orc, dav1d, graphene, libsoup | — | use OpenBSD ports |

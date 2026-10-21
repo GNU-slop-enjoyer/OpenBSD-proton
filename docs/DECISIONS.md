@@ -80,4 +80,6 @@ commit (including dxbc-spirv's nested SPIRV-Headers), placed in
 `post-extract`. The extracted tree was verified identical to a recursive git
 checkout of the same commits. Only the DLLs are installed (no import
 libraries); installing them into a prefix is left to the user or a future
-launcher (ROADMAP M4), as Proton does per prefix.
+launcher (ROADMAP M4), as Proton does per prefix. `graphics/vkd3d-proton`
+follows the same layout (`lib/vkd3d-proton/x64`) and pins widl through a
+port-local cross file, so an installed wine's `widl` is never picked up.

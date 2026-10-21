@@ -15,6 +15,7 @@ bin/x86_64-w64-mingw32-readelf
 bin/x86_64-w64-mingw32-size
 bin/x86_64-w64-mingw32-strings
 bin/x86_64-w64-mingw32-strip
+bin/x86_64-w64-mingw32-widl
 bin/x86_64-w64-mingw32-windres
 mingw-w64/
 mingw-w64/bin/
@@ -35,6 +36,7 @@ mingw-w64/bin/x86_64-w64-mingw32-readelf
 mingw-w64/bin/x86_64-w64-mingw32-size
 mingw-w64/bin/x86_64-w64-mingw32-strings
 mingw-w64/bin/x86_64-w64-mingw32-strip
+@bin mingw-w64/bin/x86_64-w64-mingw32-widl
 mingw-w64/bin/x86_64-w64-mingw32-windres
 mingw-w64/lib/
 mingw-w64/lib/clang/

@@ -1,0 +1,12 @@
+vkd3d-proton implements Direct3D 12 on top of Vulkan. These are the 64-bit
+Windows DLLs (d3d12, d3d12core) for use inside a wine prefix, built at the
+commit used by Valve's Proton 11.0-2e. Direct3D 12 games usually also need
+DXVK's dxgi (graphics/dxvk).
+
+To use them, copy the DLLs from /usr/local/lib/vkd3d-proton/x64 into the
+prefix's drive_c/windows/system32 and set
+WINEDLLOVERRIDES="d3d12,d3d12core=n".
+
+A Vulkan driver with the features vkd3d-proton requires is needed at run
+time (on OpenBSD: Mesa anv or radv). Only 64-bit Windows programs are
+supported.
