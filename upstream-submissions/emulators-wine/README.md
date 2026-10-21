@@ -36,6 +36,10 @@ ntdll/win32u syscalls with BOOLEAN/WORD/BYTE/WCHAR/ATOM/LANGID arguments
 - Applied to and tested in `emulators/proton-wine` (wine 11.0 base):
   codegen checked (`testb %r8b,%r8b`), `kernel32_test drive` passes, full
   winetest re-run with no new failures attributable to it (docs/TESTING.md).
-- For wine-11.19: generated and applied to the patched source tree only;
-  **not yet built or tested** with emulators/wine. Do not send before that
-  (docs/PROGRESS.md tracks it).
+- For wine-11.19 (2026-10-21, OpenBSD 8.0 VM): the port with `patches/`
+  builds and packages (wine-11.19p1 locally; no new warnings: the same 8
+  implicit-declaration warnings as before), `ntdll.so` now tests
+  `restart` with `testb`, `kernel32_test drive` and `ntdll_test om`
+  pass, `basic.exe` 6/6 and `gui.exe` 5/5; sampled units ntdll file,
+  user32 win, kernel32 sync show no new failures. Not sent anywhere:
+  sending needs the project owner's OK.

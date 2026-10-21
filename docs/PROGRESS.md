@@ -83,15 +83,15 @@ blockers, next action.
   (Proton's GlobalRoot prefix stripping in ntdll file.c), advapi32 crypt
   / crypt32 protectdata (SteamGameId hacks); comctl32/user32 message
   sequences unverified.
-- **In progress when the session ended:** emulators/wine-11.19p1 build in
-  the VM with `upstream-submissions/emulators-wine/patches` (log
-  `~builder/build-logs/emulators_wine-narrow.log`; original patches kept in
-  `/usr/ports/emulators/wine/patches.orig`, REVISION bumped locally only).
-  Next: install it, run `kernel32_test drive`/winetest, update the
-  submission README.
+- emulators/wine-11.19 with the narrow-argument patch set: built and
+  tested in the VM (TESTING.md); ready to send once the owner agrees.
+  The VM has the local wine-11.19p1 package installed; its port dir is
+  restored to the original -current files.
 - Open: wineserver `IOCTL_AFD_WINE_CONNECT` (server/sock.c) should
   recreate the Unix socket when OpenBSD refuses connect() after a failed
-  attempt (EINVAL); afdko port for Proton's CJK fonts.
+  attempt (EINVAL); a plain dup2() over the fd is not enough because
+  clients may have cached the old fd after the first attempt
+  (allow_fd_caching), so it needs cache invalidation; afdko port for Proton's CJK fonts.
 
 ### Next concrete actions
 1. Finish the p1 winetest comparison; explain or fix the remaining
