@@ -1,0 +1,7 @@
+Wine Mono (an implementation of the .NET Framework for wine, based on
+Mono) and Wine Gecko (wine's HTML engine, used by mshtml) in the versions
+Valve's Proton 11.0-2e bundles, installed where emulators/proton-wine
+looks for them. With them, programs that need .NET or embed web views can
+run, and new prefixes no longer offer to download the add-ons.
+
+These are the upstream projects' prebuilt Windows binaries.

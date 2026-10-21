@@ -43,3 +43,12 @@ ntdll/win32u syscalls with BOOLEAN/WORD/BYTE/WCHAR/ATOM/LANGID arguments
   pass, `basic.exe` 6/6 and `gui.exe` 5/5; sampled units ntdll file,
   user32 win, kernel32 sync show no new failures. Not sent anywhere:
   sending needs the project owner's OK.
+
+## Further fixes (openbsd-fixes.diff, folded into patches/)
+
+Found in proton-wine, ported to wine-11.19 (same code paths):
+directory change notifications (wineserver had no path for watched
+directories), boolean/multicast socket options, reconnect after a failed
+connect, malloc in signal context (get_mapping_info), and the
+cross-process copy APC's fault handling. Status: build and tests of the
+combined set with emulators/wine in progress (see docs/TESTING.md).

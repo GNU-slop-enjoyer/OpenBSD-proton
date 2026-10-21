@@ -1,0 +1,488 @@
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/ntdll/unix/server.c
+--- a/dlls/ntdll/unix/server.c	2026-10-21 10:30:15.236738912 +0200
++++ b/dlls/ntdll/unix/server.c	2026-10-21 15:25:01.583185697 +0200
+@@ -724,12 +724,29 @@
+                                                              &view_size, ViewShare, 0, PAGE_READWRITE );
+             if (!result->copy_memory.status)
+             {
+-                /* each stores a local copy that will keep page protections and fault if needed */
+-                /* direction? */
+-                result->copy_memory.status = NtReadVirtualMemory( NtCurrentProcess(),
+-                                     call->copy_memory.write ? view : addr,
+-                                     call->copy_memory.write ? addr : view,
+-                                     size, &copied );
++                /* This may run in a signal handler that interrupted Windows
++                 * code, where a fault cannot be caught (nested exception on
++                 * the signal stack), so check page protections instead of
++                 * relying on fault handling; inaccessible ranges are a
++                 * normal case (STATUS_PARTIAL_COPY). */
++                if (call->copy_memory.write)
++                {
++                    /* like Windows, report how much was written before the
++                     * first inaccessible page */
++                    while (copied < size)
++                    {
++                        SIZE_T block = min( size - copied, page_size - (((UINT_PTR)addr + copied) & (page_size - 1)) );
++                        if (virtual_uninterrupted_write_memory( (char *)addr + copied,
++                                                                (char *)view + copied, block ))
++                            break;
++                        copied += block;
++                    }
++                    if (copied != size) result->copy_memory.status = STATUS_PARTIAL_COPY;
++                }
++                else if (virtual_uninterrupted_read_memory( addr, view, size ) != size)
++                    result->copy_memory.status = STATUS_PARTIAL_COPY;  /* nothing copied */
++                else
++                    copied = size;
+                 NtUnmapViewOfSection( NtCurrentProcess(), view );
+             }
+         }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/ntdll/unix/socket.c
+--- a/dlls/ntdll/unix/socket.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/socket.c	2026-10-21 15:25:01.476518939 +0200
+@@ -1584,6 +1584,55 @@
+ }
+ 
+ 
++/* Boolean options: BSD kernels return the option's flag bit (e.g. SO_OOBINLINE
++ * gives 0x100, TCP_NODELAY 4) where Windows and Linux return 1, and a short
++ * buffer would then truncate a set option to 0.  Read the full int and
++ * return 0 or 1 in as many bytes as requested. */
++static NTSTATUS do_getsockopt_bool( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                    int option, void *out_buffer, ULONG out_size )
++{
++    NTSTATUS status;
++    int value = 0;
++
++    if ((status = do_getsockopt( handle, NULL, level, option, &value, sizeof(value) )))
++        return status;
++    value = !!value;
++    out_size = min( out_size, sizeof(value) );
++    memcpy( out_buffer, &value, out_size );
++    if (io)
++    {
++        io->Status = STATUS_SUCCESS;
++        io->Information = out_size;
++    }
++    return STATUS_SUCCESS;
++}
++
++
++#ifdef __OpenBSD__
++/* OpenBSD's IP_MULTICAST_TTL and IP_MULTICAST_LOOP are u_char options and
++ * setting them with any other length fails with EINVAL; Windows uses an int
++ * (or as many bytes as given). */
++static NTSTATUS do_getsockopt_uchar( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                     int option, void *out_buffer, ULONG out_size )
++{
++    NTSTATUS status;
++    unsigned char byte = 0;
++    int value;
++
++    if ((status = do_getsockopt( handle, NULL, level, option, &byte, sizeof(byte) )))
++        return status;
++    value = byte;
++    out_size = min( out_size, sizeof(value) );
++    memcpy( out_buffer, &value, out_size );
++    if (io)
++    {
++        io->Status = STATUS_SUCCESS;
++        io->Information = out_size;
++    }
++    return STATUS_SUCCESS;
++}
++#endif
++
+ static NTSTATUS do_setsockopt( HANDLE handle, IO_STATUS_BLOCK *io, int level,
+                                int option, const void *optval, socklen_t optlen )
+ {
+@@ -1601,6 +1650,21 @@
+     return STATUS_SUCCESS;
+ }
+ 
++#ifdef __OpenBSD__
++static NTSTATUS do_setsockopt_uchar( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                     int option, const void *optval, socklen_t optlen )
++{
++    unsigned char byte;
++    int value = 0;
++
++    if (!optlen) return do_setsockopt( handle, io, level, option, optval, optlen );
++    memcpy( &value, optval, min( optlen, sizeof(value) ) );
++    if (value < 0 || value > 0xff) return STATUS_INVALID_PARAMETER;
++    byte = value;
++    return do_setsockopt( handle, io, level, option, &byte, sizeof(byte) );
++}
++#endif
++
+ 
+ static int get_sock_type( HANDLE handle )
+ {
+@@ -2075,13 +2139,13 @@
+             break;
+ 
+         case IOCTL_AFD_WINE_GET_SO_BROADCAST:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_BROADCAST, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_BROADCAST, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_BROADCAST:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_BROADCAST, in_buffer, in_size );
+ 
+         case IOCTL_AFD_WINE_GET_SO_KEEPALIVE:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_KEEPALIVE, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_KEEPALIVE, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_KEEPALIVE:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_KEEPALIVE, in_buffer, in_size );
+@@ -2099,7 +2163,7 @@
+             ret = getsockopt( fd, SOL_SOCKET, SO_LINGER, &unix_linger, &len );
+             if (!ret)
+             {
+-                ws_linger->l_onoff = unix_linger.l_onoff;
++                ws_linger->l_onoff = !!unix_linger.l_onoff;  /* BSD returns SO_LINGER */
+                 ws_linger->l_linger = unix_linger.l_linger;
+                 io->Status = STATUS_SUCCESS;
+                 io->Information = sizeof(*ws_linger);
+@@ -2121,7 +2185,7 @@
+         }
+ 
+         case IOCTL_AFD_WINE_GET_SO_OOBINLINE:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_OOBINLINE, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_OOBINLINE, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_OOBINLINE:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_OOBINLINE, in_buffer, in_size );
+@@ -2234,28 +2298,44 @@
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_getsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, out_buffer, out_size );
++#else
+             return do_getsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, out_buffer, out_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_SET_IP_MULTICAST_LOOP:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_setsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, in_buffer, in_size );
++#else
+             return do_setsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, in_buffer, in_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_GET_IP_MULTICAST_TTL:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_getsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, out_buffer, out_size );
++#else
+             return do_getsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, out_buffer, out_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_SET_IP_MULTICAST_TTL:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_setsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, in_buffer, in_size );
++#else
+             return do_setsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, in_buffer, in_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_GET_IP_OPTIONS:
+@@ -2633,7 +2713,7 @@
+ #endif
+ 
+         case IOCTL_AFD_WINE_GET_TCP_NODELAY:
+-            return do_getsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, IPPROTO_TCP, TCP_NODELAY, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_TCP_NODELAY:
+             return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/ntdll/unix/virtual.c
+--- a/dlls/ntdll/unix/virtual.c	2026-10-21 10:30:15.267697983 +0200
++++ b/dlls/ntdll/unix/virtual.c	2026-10-21 15:25:01.391488651 +0200
+@@ -3303,15 +3303,18 @@
+ static unsigned int get_mapping_info( HANDLE handle, ACCESS_MASK access, unsigned int *sec_flags,
+                                       mem_size_t *full_size, struct pe_mapping_info **info_ret )
+ {
+-    struct pe_mapping_info *info;
++    /* The first query uses a stack buffer: this also runs for system APCs
++     * (mapping a view on behalf of another process), which may execute in a
++     * signal handler that interrupted malloc(), and plain sections return no
++     * image info at all. */
++    union { struct pe_mapping_info info; char buffer[offsetof(struct pe_mapping_info, image) + 2048]; } local;
++    struct pe_mapping_info *info = &local.info;
+     SIZE_T total, size = 2048;
+     unsigned int status;
+ 
+     *info_ret = NULL;
+     for (;;)
+     {
+-        if (!(info = malloc( offsetof(struct pe_mapping_info, image) + size ))) return STATUS_NO_MEMORY;
+-
+         SERVER_START_REQ( get_mapping_info )
+         {
+             req->handle = wine_server_obj_handle( handle );
+@@ -3327,13 +3330,24 @@
+         }
+         SERVER_END_REQ;
+         if (!status && total <= size) break;
+-        free_pe_mapping_info( info );
++        if (info->shared_file) NtClose( info->shared_file );
++        if (info != &local.info) free( info );
+         if (status) return status;
+         size = total;
++        if (!(info = malloc( offsetof(struct pe_mapping_info, image) + size ))) return STATUS_NO_MEMORY;
+     }
+ 
+     if (total)
+     {
++        if (info == &local.info)
++        {
++            if (!(info = malloc( offsetof(struct pe_mapping_info, image) + total )))
++            {
++                if (local.info.shared_file) NtClose( local.info.shared_file );
++                return STATUS_NO_MEMORY;
++            }
++            memcpy( info, &local.info, offsetof(struct pe_mapping_info, image) + total );
++        }
+         info->version_res     = info->data;
+         info->nt_name.Buffer  = (WCHAR *)(info->data + info->version_len);
+         info->exp_name.Buffer = info->data + info->version_len + info->nt_name.Length;
+@@ -3341,7 +3355,11 @@
+         info->exp_name.MaximumLength = info->exp_name.Length;
+         *info_ret = info;
+     }
+-    else free_pe_mapping_info( info );
++    else
++    {
++        if (info->shared_file) NtClose( info->shared_file );
++        if (info != &local.info) free( info );
++    }
+ 
+     return STATUS_SUCCESS;
+ }
+diff -ruN -x '*.orig' wine1119-base/server/change.c wine1119-chg/server/change.c
+--- a/server/change.c	2026-10-02 23:15:08.000000000 +0200
++++ b/server/change.c	2026-10-21 15:24:20.071337208 +0200
+@@ -707,22 +707,29 @@
+     return filter;
+ }
+ 
+-static char *get_path_from_fd( int fd, int sz )
++static char *get_path_from_fd( struct fd *fd, int sz )
+ {
+ #ifdef linux
+     char *ret = malloc( 32 + sz );
+ 
+-    if (ret) snprintf( ret, 32 + sz, "/proc/self/fd/%u", fd );
++    if (ret) snprintf( ret, 32 + sz, "/proc/self/fd/%u", get_unix_fd( fd ) );
+     return ret;
+ #elif defined(F_GETPATH)
+     char *ret = malloc( PATH_MAX + sz );
+ 
+     if (!ret) return NULL;
+-    if (!fcntl( fd, F_GETPATH, ret )) return ret;
++    if (!fcntl( get_unix_fd( fd ), F_GETPATH, ret )) return ret;
+     free( ret );
+     return NULL;
+ #else
+-    return NULL;
++    /* no way to ask the kernel (e.g. OpenBSD): use the name the server
++     * opened the directory with */
++    const char *name = get_fd_unix_name( fd );
++    char *ret;
++
++    if (!name || !(ret = malloc( strlen( name ) + 1 + sz ))) return NULL;
++    strcpy( ret, name );
++    return ret;
+ #endif
+ }
+ 
+@@ -738,8 +745,8 @@
+     head = list_head( &inode->dirs );
+     if (head)
+     {
+-        int unix_fd = get_unix_fd( LIST_ENTRY( head, struct dir, in_entry )->fd );
+-        if (!(path = get_path_from_fd( unix_fd, sz + 1 ))) return NULL;
++        if (!(path = get_path_from_fd( LIST_ENTRY( head, struct dir, in_entry )->fd, sz + 1 )))
++            return NULL;
+         strcat( path, "/" );
+         return path;
+     }
+@@ -994,7 +1001,7 @@
+ 
+     filter = filter_from_inode( inode, 0 );
+ 
+-    if (!(path = get_path_from_fd( unix_fd, 0 ))) return 0;
++    if (!(path = get_path_from_fd( dir->fd, 0 ))) return 0;
+     wd = inotify_add_dir( path, filter );
+     free( path );
+     if (wd == -1) return 0;
+@@ -1060,7 +1067,7 @@
+     if (find_inode( st_new.st_dev, st_new.st_ino )) return;
+ 
+     /* lookup the parent */
+-    if (!(link = get_path_from_fd( unix_fd, 3 ))) return;
++    if (!(link = get_path_from_fd( dir->fd, 3 ))) return;
+     strcat( link, "/.." );
+     res = stat( link, &st );
+     free( link );
+@@ -1076,7 +1083,7 @@
+     if (parent->wd == -1) return;
+ 
+     if (!(filter = filter_from_inode( parent, 1 ))) return;
+-    if (!(link = get_path_from_fd( unix_fd, 0 ))) return;
++    if (!(link = get_path_from_fd( dir->fd, 0 ))) return;
+     if (!(name = get_basename( link )))
+     {
+         free( link );
+diff -ruN -x '*.orig' wine1119-base/server/fd.c wine1119-chg/server/fd.c
+--- a/server/fd.c	2026-10-21 10:30:15.301031353 +0200
++++ b/server/fd.c	2026-10-21 15:24:20.071798905 +0200
+@@ -3131,6 +3131,12 @@
+     }
+ }
+ 
++/* the Unix name an fd was opened with (NULL if unknown) */
++const char *get_fd_unix_name( struct fd *fd )
++{
++    return fd->unix_name;
++}
++
+ /* get a Unix fd to access a file */
+ DECL_HANDLER(get_handle_fd)
+ {
+diff -ruN -x '*.orig' wine1119-base/server/file.h wine1119-chg/server/file.h
+--- a/server/file.h	2026-10-02 23:15:08.000000000 +0200
++++ b/server/file.h	2026-10-21 15:24:20.072221400 +0200
+@@ -97,6 +97,7 @@
+ extern unsigned int get_fd_comp_flags( struct fd *fd );
+ extern int is_fd_overlapped( struct fd *fd );
+ extern int get_unix_fd( struct fd *fd );
++extern const char *get_fd_unix_name( struct fd *fd );
+ extern client_ptr_t get_fd_map_address( struct fd *fd );
+ extern void set_fd_map_address( struct fd *fd, client_ptr_t addr, mem_size_t size );
+ extern int is_same_file_fd( struct fd *fd1, struct fd *fd2 );
+diff -ruN -x '*.orig' wine1119-base/server/sock.c wine1119-chg/server/sock.c
+--- a/server/sock.c	2026-10-21 10:30:15.331031386 +0200
++++ b/server/sock.c	2026-10-21 15:25:01.543618566 +0200
+@@ -1433,6 +1433,9 @@
+             sock->state = SOCK_CONNECTED;
+             sock->connect_time = current_time;
+             sock->errors[AFD_POLL_BIT_CONNECT_ERR] = 0;
++#ifdef __OpenBSD__
++            allow_fd_caching( sock->fd );
++#endif
+         }
+         break;
+ 
+@@ -2527,6 +2530,74 @@
+     return req;
+ }
+ 
++#ifdef __OpenBSD__
++/* OpenBSD refuses connect() (EINVAL) on a TCP socket whose previous connect
++ * attempt failed, while Windows allows retrying on the same socket.  Replace
++ * the Unix socket with a new one at the same descriptor number, carrying over
++ * the file flags, the common options and the local address.  Only called for
++ * unconnected stream sockets, whose fd clients cannot have cached (see the
++ * allow_fd_caching() calls). */
++static int sock_recreate_unix_socket( struct sock *sock, int unix_fd )
++{
++    static const int sol_options[] = { SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE, SO_OOBINLINE,
++                                       SO_DONTROUTE, SO_BROADCAST, SO_RCVBUF, SO_SNDBUF };
++    union unix_sockaddr addr;
++    socklen_t len = sizeof(addr);
++    struct linger linger;
++    int newfd, value, i, fl, fdfl, family;
++
++    if (sock->family == WS_AF_INET) family = AF_INET;
++    else if (sock->family == WS_AF_INET6) family = AF_INET6;
++    else return -1;
++    /* may fail with EINVAL as well after the failed attempt */
++    if (getsockname( unix_fd, &addr.addr, &len )) addr.addr.sa_family = AF_UNSPEC;
++    if ((newfd = socket( family, SOCK_STREAM, IPPROTO_TCP )) == -1) return -1;
++
++    for (i = 0; i < ARRAY_SIZE(sol_options); i++)
++    {
++        socklen_t vlen = sizeof(value);
++        if (!getsockopt( unix_fd, SOL_SOCKET, sol_options[i], &value, &vlen ))
++            setsockopt( newfd, SOL_SOCKET, sol_options[i], &value, sizeof(value) );
++    }
++    len = sizeof(linger);
++    if (!getsockopt( unix_fd, SOL_SOCKET, SO_LINGER, &linger, &len ))
++        setsockopt( newfd, SOL_SOCKET, SO_LINGER, &linger, sizeof(linger) );
++    len = sizeof(value);
++    if (!getsockopt( unix_fd, IPPROTO_TCP, TCP_NODELAY, &value, &len ))
++        setsockopt( newfd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value) );
++    if (family == AF_INET6)
++    {
++        len = sizeof(value);
++        if (!getsockopt( unix_fd, IPPROTO_IPV6, IPV6_V6ONLY, &value, &len ))
++            setsockopt( newfd, IPPROTO_IPV6, IPV6_V6ONLY, &value, sizeof(value) );
++    }
++    fl = fcntl( unix_fd, F_GETFL );
++    fdfl = fcntl( unix_fd, F_GETFD );
++
++    /* the kqueue filters belong to the old socket; drop them while it exists,
++     * sock_reselect() adds them again for the new one */
++    set_fd_events( sock->fd, -1 );
++    if (dup2( newfd, unix_fd ) == -1)
++    {
++        close( newfd );
++        return -1;
++    }
++    close( newfd );
++    if (fl != -1) fcntl( unix_fd, F_SETFL, fl );
++    if (fdfl != -1) fcntl( unix_fd, F_SETFD, fdfl );
++
++    /* keep the local address (explicit, or chosen by the failed attempt) */
++    if ((addr.addr.sa_family == AF_INET && addr.in.sin_port) ||
++        (addr.addr.sa_family == AF_INET6 && addr.in6.sin6_port))
++    {
++        len = addr.addr.sa_family == AF_INET ? sizeof(addr.in) : sizeof(addr.in6);
++        bind( unix_fd, &addr.addr, len );
++    }
++    if (debug_level) fprintf( stderr, "socket %p: recreated after failed connect\n", sock );
++    return 0;
++}
++#endif
++
+ static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
+ {
+     struct sock *sock = get_fd_user( fd );
+@@ -2760,6 +2831,12 @@
+             ret = connect( unix_fd, &unix_addr.addr, unix_len );
+         }
+ 
++#ifdef __OpenBSD__
++        if (ret < 0 && errno == EINVAL && sock->type == WS_SOCK_STREAM &&
++            sock->state == SOCK_UNCONNECTED && !sock_recreate_unix_socket( sock, unix_fd ))
++            ret = connect( unix_fd, &unix_addr.addr, unix_len );
++#endif
++
+         if (ret < 0 && errno == EACCES && sock->state == SOCK_CONNECTIONLESS && unix_addr.addr.sa_family == AF_INET)
+         {
+             int broadcast, saved_errno;
+@@ -2786,6 +2863,12 @@
+         }
+ 
+         /* a connected or connecting socket can no longer be accepted into */
++#ifdef __OpenBSD__
++        /* ...but on OpenBSD a stream socket whose connect fails may still be
++         * replaced (sock_recreate_unix_socket()), so clients may only cache
++         * its fd once it is connected. */
++        if (sock->type != WS_SOCK_STREAM || !ret)
++#endif
+         allow_fd_caching( sock->fd );
+ 
+         unix_len = sizeof(unix_addr);

@@ -3,10 +3,12 @@
 # of ValveSoftware/Proton Makefile.in (proton-11.0-2e).
 #
 # Environment: FONTSRC (Proton fonts/), LIBSRC (liberation-fonts src/),
-# FONTOBJ (output directory), PYTHON (python3 with fontTools).
+# FONTOBJ (output directory), PYTHON (python3 with fontTools), FILESDIR,
+# SHS_SC/SHS_K (Source Han Sans SC/K Regular OTFs).
 set -eu
 
-: "${FONTSRC:?}" "${LIBSRC:?}" "${FONTOBJ:?}" "${PYTHON:?}"
+: "${FONTSRC:?}" "${LIBSRC:?}" "${FONTOBJ:?}" "${PYTHON:?}" "${FILESDIR:?}"
+: "${SHS_SC:?}" "${SHS_K:?}"
 mkdir -p "$FONTOBJ"
 cd "$FONTOBJ"
 
@@ -49,5 +51,8 @@ noto() {
     NotoSansSoraSompeng NotoSansTamilUI NotoSansTeluguUI NotoSerifTibetan \
     NotoSansMath NotoSansSymbols2) \
     "NirmalaUI" "Nirmala UI" "Regular" "$FONTSRC/ranges/nirmala" nirmala.ttf
+
+# msyh.ttf, simsun.ttc, malgun.ttf, msgothic.ttc
+"$PYTHON" "$FILESDIR/cjk-fonts.py" "$FONTSRC" "$SHS_SC" "$SHS_K" .
 
 rm -f ./*.sfd ./*.sfd.orig

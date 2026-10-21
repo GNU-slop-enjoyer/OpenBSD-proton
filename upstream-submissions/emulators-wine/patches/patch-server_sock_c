@@ -1,7 +1,7 @@
 Index: server/sock.c
 --- server/sock.c.orig
 +++ server/sock.c
-@@ -1400,7 +1400,23 @@ static void sock_poll_event( struct fd *fd, int event 
+@@ -1400,6 +1400,22 @@ static void sock_poll_event( struct fd *
  
      if (event & (POLLERR | POLLHUP))
          error = sock_error( sock, &event );
@@ -9,7 +9,7 @@ Index: server/sock.c
 +    else if (sock->state == SOCK_CONNECTING && (event & POLLOUT))
 +    {
 +        socklen_t len = sizeof(error);
- 
++
 +        /* connect(2): check SO_ERROR on write readiness; kqueue(2) can
 +         * report socket errors without EV_EOF. A successful retry may
 +         * still have a cached error from the previous attempt. */
@@ -21,11 +21,121 @@ Index: server/sock.c
 +        }
 +    }
 +#endif
-+
+ 
      switch (sock->state)
      {
-     case SOCK_UNCONNECTED:
-@@ -4052,7 +4068,13 @@ DECL_HANDLER(send_socket)
+@@ -1417,6 +1433,9 @@ static void sock_poll_event( struct fd *
+             sock->state = SOCK_CONNECTED;
+             sock->connect_time = current_time;
+             sock->errors[AFD_POLL_BIT_CONNECT_ERR] = 0;
++#ifdef __OpenBSD__
++            allow_fd_caching( sock->fd );
++#endif
+         }
+         break;
+ 
+@@ -2511,6 +2530,74 @@ static struct accept_req *alloc_accept_r
+     return req;
+ }
+ 
++#ifdef __OpenBSD__
++/* OpenBSD refuses connect() (EINVAL) on a TCP socket whose previous connect
++ * attempt failed, while Windows allows retrying on the same socket.  Replace
++ * the Unix socket with a new one at the same descriptor number, carrying over
++ * the file flags, the common options and the local address.  Only called for
++ * unconnected stream sockets, whose fd clients cannot have cached (see the
++ * allow_fd_caching() calls). */
++static int sock_recreate_unix_socket( struct sock *sock, int unix_fd )
++{
++    static const int sol_options[] = { SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE, SO_OOBINLINE,
++                                       SO_DONTROUTE, SO_BROADCAST, SO_RCVBUF, SO_SNDBUF };
++    union unix_sockaddr addr;
++    socklen_t len = sizeof(addr);
++    struct linger linger;
++    int newfd, value, i, fl, fdfl, family;
++
++    if (sock->family == WS_AF_INET) family = AF_INET;
++    else if (sock->family == WS_AF_INET6) family = AF_INET6;
++    else return -1;
++    /* may fail with EINVAL as well after the failed attempt */
++    if (getsockname( unix_fd, &addr.addr, &len )) addr.addr.sa_family = AF_UNSPEC;
++    if ((newfd = socket( family, SOCK_STREAM, IPPROTO_TCP )) == -1) return -1;
++
++    for (i = 0; i < ARRAY_SIZE(sol_options); i++)
++    {
++        socklen_t vlen = sizeof(value);
++        if (!getsockopt( unix_fd, SOL_SOCKET, sol_options[i], &value, &vlen ))
++            setsockopt( newfd, SOL_SOCKET, sol_options[i], &value, sizeof(value) );
++    }
++    len = sizeof(linger);
++    if (!getsockopt( unix_fd, SOL_SOCKET, SO_LINGER, &linger, &len ))
++        setsockopt( newfd, SOL_SOCKET, SO_LINGER, &linger, sizeof(linger) );
++    len = sizeof(value);
++    if (!getsockopt( unix_fd, IPPROTO_TCP, TCP_NODELAY, &value, &len ))
++        setsockopt( newfd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value) );
++    if (family == AF_INET6)
++    {
++        len = sizeof(value);
++        if (!getsockopt( unix_fd, IPPROTO_IPV6, IPV6_V6ONLY, &value, &len ))
++            setsockopt( newfd, IPPROTO_IPV6, IPV6_V6ONLY, &value, sizeof(value) );
++    }
++    fl = fcntl( unix_fd, F_GETFL );
++    fdfl = fcntl( unix_fd, F_GETFD );
++
++    /* the kqueue filters belong to the old socket; drop them while it exists,
++     * sock_reselect() adds them again for the new one */
++    set_fd_events( sock->fd, -1 );
++    if (dup2( newfd, unix_fd ) == -1)
++    {
++        close( newfd );
++        return -1;
++    }
++    close( newfd );
++    if (fl != -1) fcntl( unix_fd, F_SETFL, fl );
++    if (fdfl != -1) fcntl( unix_fd, F_SETFD, fdfl );
++
++    /* keep the local address (explicit, or chosen by the failed attempt) */
++    if ((addr.addr.sa_family == AF_INET && addr.in.sin_port) ||
++        (addr.addr.sa_family == AF_INET6 && addr.in6.sin6_port))
++    {
++        len = addr.addr.sa_family == AF_INET ? sizeof(addr.in) : sizeof(addr.in6);
++        bind( unix_fd, &addr.addr, len );
++    }
++    if (debug_level) fprintf( stderr, "socket %p: recreated after failed connect\n", sock );
++    return 0;
++}
++#endif
++
+ static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
+ {
+     struct sock *sock = get_fd_user( fd );
+@@ -2744,6 +2831,12 @@ static void sock_ioctl( struct fd *fd, i
+             ret = connect( unix_fd, &unix_addr.addr, unix_len );
+         }
+ 
++#ifdef __OpenBSD__
++        if (ret < 0 && errno == EINVAL && sock->type == WS_SOCK_STREAM &&
++            sock->state == SOCK_UNCONNECTED && !sock_recreate_unix_socket( sock, unix_fd ))
++            ret = connect( unix_fd, &unix_addr.addr, unix_len );
++#endif
++
+         if (ret < 0 && errno == EACCES && sock->state == SOCK_CONNECTIONLESS && unix_addr.addr.sa_family == AF_INET)
+         {
+             int broadcast, saved_errno;
+@@ -2770,6 +2863,12 @@ static void sock_ioctl( struct fd *fd, i
+         }
+ 
+         /* a connected or connecting socket can no longer be accepted into */
++#ifdef __OpenBSD__
++        /* ...but on OpenBSD a stream socket whose connect fails may still be
++         * replaced (sock_recreate_unix_socket()), so clients may only cache
++         * its fd once it is connected. */
++        if (sock->type != WS_SOCK_STREAM || !ret)
++#endif
+         allow_fd_caching( sock->fd );
+ 
+         unix_len = sizeof(unix_addr);
+@@ -4052,7 +4151,13 @@ DECL_HANDLER(send_socket)
           * asyncs will not consume all available space; if there's no space
           * available, the current request won't be immediately satiable.
           */

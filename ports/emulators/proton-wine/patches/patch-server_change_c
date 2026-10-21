@@ -1,0 +1,80 @@
+Directory change notifications: without /proc/self/fd or F_GETPATH
+(OpenBSD) wineserver could not get a path for a watched directory, so it
+never added an inotify (libinotify) watch and notifications never fired.
+Use the Unix name the server opened the directory with (get_fd_unix_name()).
+
+Index: server/change.c
+--- server/change.c.orig
++++ server/change.c
+@@ -667,22 +667,29 @@ static unsigned int filter_from_inode( s
+     return filter;
+ }
+ 
+-static char *get_path_from_fd( int fd, int sz )
++static char *get_path_from_fd( struct fd *fd, int sz )
+ {
+ #ifdef linux
+     char *ret = malloc( 32 + sz );
+ 
+-    if (ret) snprintf( ret, 32 + sz, "/proc/self/fd/%u", fd );
++    if (ret) snprintf( ret, 32 + sz, "/proc/self/fd/%u", get_unix_fd( fd ) );
+     return ret;
+ #elif defined(F_GETPATH)
+     char *ret = malloc( PATH_MAX + sz );
+ 
+     if (!ret) return NULL;
+-    if (!fcntl( fd, F_GETPATH, ret )) return ret;
++    if (!fcntl( get_unix_fd( fd ), F_GETPATH, ret )) return ret;
+     free( ret );
+     return NULL;
+ #else
+-    return NULL;
++    /* no way to ask the kernel (e.g. OpenBSD): use the name the server
++     * opened the directory with */
++    const char *name = get_fd_unix_name( fd );
++    char *ret;
++
++    if (!name || !(ret = malloc( strlen( name ) + 1 + sz ))) return NULL;
++    strcpy( ret, name );
++    return ret;
+ #endif
+ }
+ 
+@@ -698,8 +705,8 @@ static char *inode_get_path( struct inod
+     head = list_head( &inode->dirs );
+     if (head)
+     {
+-        int unix_fd = get_unix_fd( LIST_ENTRY( head, struct dir, in_entry )->fd );
+-        if (!(path = get_path_from_fd( unix_fd, sz + 1 ))) return NULL;
++        if (!(path = get_path_from_fd( LIST_ENTRY( head, struct dir, in_entry )->fd, sz + 1 )))
++            return NULL;
+         strcat( path, "/" );
+         return path;
+     }
+@@ -954,7 +961,7 @@ static int inotify_adjust_changes( struc
+ 
+     filter = filter_from_inode( inode, 0 );
+ 
+-    if (!(path = get_path_from_fd( unix_fd, 0 ))) return 0;
++    if (!(path = get_path_from_fd( dir->fd, 0 ))) return 0;
+     wd = inotify_add_dir( path, filter );
+     free( path );
+     if (wd == -1) return 0;
+@@ -1020,7 +1027,7 @@ static void dir_add_to_existing_notify(
+     if (find_inode( st_new.st_dev, st_new.st_ino )) return;
+ 
+     /* lookup the parent */
+-    if (!(link = get_path_from_fd( unix_fd, 3 ))) return;
++    if (!(link = get_path_from_fd( dir->fd, 3 ))) return;
+     strcat( link, "/.." );
+     res = stat( link, &st );
+     free( link );
+@@ -1036,7 +1043,7 @@ static void dir_add_to_existing_notify(
+     if (parent->wd == -1) return;
+ 
+     if (!(filter = filter_from_inode( parent, 1 ))) return;
+-    if (!(link = get_path_from_fd( unix_fd, 0 ))) return;
++    if (!(link = get_path_from_fd( dir->fd, 0 ))) return;
+     if (!(name = get_basename( link )))
+     {
+         free( link );

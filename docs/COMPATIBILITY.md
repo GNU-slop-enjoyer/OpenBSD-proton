@@ -154,9 +154,9 @@ before `wineboot -i`, like Proton. With that, both dwrite units pass
 (0 failures). Proton's own fonts are packaged as `fonts/proton-fonts` (built like
 Proton's Makefile: fontforge renames Liberation to Arial/Times New
 Roman/Georgia/Courier New, `merge.py` with fontTools builds Microsoft Sans
-Serif and Nirmala UI from Noto); the launcher links them too. Still
-missing: Proton's CJK fonts (msyh, simsun, malgun from Source Han Sans,
-msgothic from Ume), which need Adobe's afdko (not in ports).
+Serif and Nirmala UI from Noto); the launcher links them too. Proton's CJK fonts
+(msyh, simsun, malgun, msgothic) are built with fontTools from Adobe's
+prebuilt Source Han Sans OTFs and Proton's Ume fonts instead of afdko.
 
 ## Sockets (found by `ws2_32_test sock`, session 2)
 
@@ -167,3 +167,32 @@ msgothic from Ume), which need Adobe's afdko (not in ports).
 | other options reject lengths ≠ sizeof(int) | only odd-length probes in the test | open (edge case) |
 | no per-socket TCP_KEEPIDLE/TCP_KEEPCNT/TCP_KEEPINTVL (sysctl only) | SIO_KEEPALIVE_VALS/TCP_KEEPALIVE cannot be honoured | platform limitation |
 | connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | open: wineserver would have to recreate the Unix socket after a failed connect |
+
+## 32-bit installers (found with real applications, session 2)
+
+Installers of 64-bit programs are often 32-bit executables (7-Zip
+`7z2301-x64.exe`, Notepad++ `npp.*.Installer.x64.exe` are i386 PE
+stubs). They cannot run on OpenBSD (FEASIBILITY.md §2); wine only reports
+"failed to load …syswow64\ntdll.dll c0000135". `proton-openbsd run` now
+detects 32-bit PE files and says so. Workarounds: the program's `.msi`
+(64-bit msiexec works, e.g. 7-Zip) or a portable archive (Notepad++).
+
+## Directory change notifications and file names (session 2)
+
+| Issue | Fix |
+|---|---|
+| wineserver needs a path to add an inotify watch; `get_path_from_fd()` only knew `/proc/self/fd` and `F_GETPATH`, neither exists on OpenBSD, so no watch was ever added (ReadDirectoryChangesW / FindFirstChangeNotification never fired) | fall back to the name the server opened the directory with (`get_fd_unix_name()`); kernel32 change 82 → 9 failures. Applies to emulators/wine too |
+| non-ASCII Windows file names are unrepresentable in the C locale (US-ASCII), the default on OpenBSD | proton-openbsd sets `LC_CTYPE=C.UTF-8` if the locale is not UTF-8 |
+| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) are only partly emulated without extended attributes | known limitation (~100 ntdll file test failures) |
+
+## Signal-context safety (found by winetest, session 2)
+
+System APCs (another process mapping, allocating, reading or writing this
+process's memory) can run in the SIGUSR1 handler that interrupted
+arbitrary code.
+
+| Issue | Fix |
+|---|---|
+| `get_mapping_info()` malloc()s; OpenBSD's malloc aborts on re-entry ("malloc(): recursive call") where glibc would rarely deadlock | first query into a stack buffer; allocate only for image mappings |
+| OpenBSD's cross-process copy (APC_COPY_MEMORY, used because OpenBSD cannot ptrace non-children) copied with fault handling that does not work in signal context; an invalid range killed the target ("nested exception on signal stack") | `virtual_uninterrupted_read/write_memory()` (page protections checked first); partial writes report the bytes written, partial reads 0, as on Windows |
+| programs that switch the stack pointer onto memory they allocated themselves (not via RtlCreateUserStack/fibers) fault fatally on OpenBSD, which requires the stack pointer to lie in a MAP_STACK mapping at faults and syscalls | known limitation (fibers and thread stacks are MAP_STACK) |

@@ -1,0 +1,16 @@
+Directory change notifications: without /proc/self/fd or F_GETPATH
+(OpenBSD) wineserver could not get a path for a watched directory, so it
+never added an inotify (libinotify) watch and notifications never fired.
+Use the Unix name the server opened the directory with (get_fd_unix_name()).
+
+Index: server/file.h
+--- server/file.h.orig
++++ server/file.h
+@@ -95,6 +95,7 @@ extern unsigned int get_fd_options( stru
+ extern unsigned int get_fd_comp_flags( struct fd *fd );
+ extern int is_fd_overlapped( struct fd *fd );
+ extern int get_unix_fd( struct fd *fd );
++extern const char *get_fd_unix_name( struct fd *fd );
+ extern client_ptr_t get_fd_map_address( struct fd *fd );
+ extern void set_fd_map_address( struct fd *fd, client_ptr_t addr, mem_size_t size );
+ extern int is_same_file_fd( struct fd *fd1, struct fd *fd2 );

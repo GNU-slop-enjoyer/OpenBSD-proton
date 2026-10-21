@@ -2,6 +2,9 @@ OpenBSD lacks xattrs; store symlink reparse data in regular files with
 Wine's '?' suffix, matching ntdll/unix/file.c. Truncate the data when
 removing a reparse point so it does not become ordinary file contents.
 
+Also (openbsd-proton): get_fd_unix_name() for directory change
+notifications; see patch-server_change_c.
+
 Index: server/fd.c
 --- server/fd.c.orig
 +++ server/fd.c
@@ -161,3 +164,16 @@ Index: server/fd.c
  }
  
  /* default read() routine */
+@@ -3122,6 +3212,12 @@ DECL_HANDLER(get_handle_unix_name)
+     }
+ }
+ 
++/* the Unix name an fd was opened with (NULL if unknown) */
++const char *get_fd_unix_name( struct fd *fd )
++{
++    return fd->unix_name;
++}
++
+ /* get a Unix fd to access a file */
+ DECL_HANDLER(get_handle_fd)
+ {

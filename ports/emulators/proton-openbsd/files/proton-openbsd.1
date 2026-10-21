@@ -85,6 +85,17 @@ in
 Any other non-zero value is added to the default
 .Ev WINEDEBUG
 channels.
+.It Ev LC_CTYPE
+If the current locale's character set is not UTF-8,
+.Nm
+sets
+.Ev LC_CTYPE
+to
+.Dq C.UTF-8
+(or
+.Ev LC_ALL ,
+if that is set),
+so that Windows file names with non-ASCII characters map to Unix names.
 .It Ev WINEDLLOVERRIDES
 Appended after the overrides set by
 .Nm ,
@@ -105,12 +116,20 @@ Configure the prefix:
 Only 64-bit Windows programs can run on
 .Ox ;
 the kernel provides no 32-bit code segment for user processes.
+.Nm
+refuses to start 32-bit executables with an explanation.
+Many installers of 64-bit programs are themselves 32-bit; use the
+program's
+.Pa .msi
+package (with
+.Ic proton-openbsd msiexec /i file.msi )
+or a portable archive instead.
 DXVK and vkd3d-proton need a Vulkan driver, which on
 .Ox
 means Mesa's anv or radv on Intel or AMD graphics.
 Steam, Steam's runtime and anti-cheat systems are not supported.
 .Pp
-Wine Mono and Wine Gecko are not packaged, so
+Without the proton-wine-addons package (Wine Mono and Wine Gecko),
 .Nm
-disables mscoree and mshtml and programs that need .NET or wine's HTML
+disables mscoree and mshtml, and programs that need .NET or wine's HTML
 engine do not work.

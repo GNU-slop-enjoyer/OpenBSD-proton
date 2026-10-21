@@ -43,6 +43,17 @@ die() {
 [ $# -ge 1 ] || usage
 [ -x "$WINE" ] || die "$WINE not found (pkg_add proton-wine)"
 
+# Windows file names are Unicode; wine maps them to Unix names in the
+# locale's codeset, and in the default C locale (US-ASCII) any non-ASCII
+# name is unrepresentable.  Use UTF-8 for LC_CTYPE unless it already is.
+if [ "$(locale charmap 2>/dev/null)" != UTF-8 ]; then
+	if [ -n "${LC_ALL:-}" ]; then
+		export LC_ALL=C.UTF-8
+	else
+		export LC_CTYPE=C.UTF-8
+	fi
+fi
+
 export WINEPREFIX=${PROTON_PREFIX:-${WINEPREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/proton-openbsd/pfx}}
 SYS32=$WINEPREFIX/drive_c/windows/system32
 
@@ -84,7 +95,7 @@ setup_prefix() {
 		# leaves DirectWrite without them.
 		link_fonts
 		# see the mscoree/mshtml note at set_overrides()
-		WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" \
+		WINEDEBUG=-all WINEDLLOVERRIDES="$ADDON_OVERRIDES" \
 		    "$WINE" wineboot -i || die "wineboot failed for $WINEPREFIX"
 		"$WINEDIR/bin/wineserver" -w
 	fi
@@ -117,11 +128,16 @@ link_fonts() {
 
 # WINEDLLOVERRIDES: "n" for the DLLs we installed, after anything the
 # user set; PROTON_NO_D3D11/PROTON_NO_D3D10 disable those APIs as Proton
-# does.  mscoree and mshtml are disabled because Wine Mono and Wine Gecko
-# are not packaged: otherwise wine offers to download them in a dialog
-# that blocks until clicked, also when it updates a prefix after a
-# proton-wine upgrade.
-overrides="mscoree,mshtml="
+# does.  Without emulators/proton-wine-addons (Wine Mono and Wine Gecko),
+# mscoree and mshtml are disabled: otherwise wine offers to download them
+# in a dialog that blocks until clicked, also when it updates a prefix
+# after a proton-wine upgrade.
+ADDON_OVERRIDES=""
+[ -d "$WINEDIR/share/wine/mono/wine-mono" ] || ADDON_OVERRIDES="mscoree"
+[ -n "$(ls -d "$WINEDIR"/share/wine/gecko/wine-gecko-*-x86_64 2>/dev/null)" ] ||
+    ADDON_OVERRIDES="${ADDON_OVERRIDES:+$ADDON_OVERRIDES,}mshtml"
+[ -n "$ADDON_OVERRIDES" ] && ADDON_OVERRIDES="$ADDON_OVERRIDES="
+overrides="$ADDON_OVERRIDES"
 add_override() {
 	overrides="${overrides:+$overrides;}$1"
 }
@@ -159,10 +175,25 @@ setup_log() {
 	export WINEDEBUG DXVK_LOG_LEVEL VKD3D_DEBUG VKD3D_SHADER_DEBUG
 }
 
+# Machine field of a PE file's COFF header ("014c" i386, "8664" x86_64),
+# empty if it is not a readable PE file.
+pe_machine() {
+	# OpenBSD's od zero-pads decimal output; strip it so it is not octal
+	off=$(od -An -tu4 -j60 -N4 "$1" 2>/dev/null | tr -d ' ' | sed 's/^0*//')
+	[ -n "$off" ] || return 0
+	[ "$(od -An -c -j"$off" -N2 "$1" 2>/dev/null | tr -d ' ')" = PE ] || return 0
+	od -An -tx2 -j$((off + 4)) -N2 "$1" 2>/dev/null | tr -d ' '
+}
+
 cmd=$1; shift
 case $cmd in
 run)
 	[ $# -ge 1 ] || usage
+	# Many "x64" installers are 32-bit programs; wine's own message for
+	# them (failing to load syswow64\ntdll.dll) does not say why.
+	if [ -f "$1" ] && [ "$(pe_machine "$1")" = 014c ]; then
+		die "$1 is a 32-bit Windows program; OpenBSD cannot run 32-bit Windows code (no 32-bit user code segment). Look for a 64-bit build, an .msi package or a portable .zip."
+	fi
 	setup_prefix
 	set_overrides
 	setup_log "$1"

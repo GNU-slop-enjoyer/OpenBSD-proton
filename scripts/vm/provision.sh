@@ -28,7 +28,7 @@ root pkg_add -I \
 	gst-plugins-bad gst-plugins-ugly gst-libav \
 	gettext-tools libinotify libgphoto sane-backends-- libpcap \
 	pcsc-lite gnutls cups-libs dbus-1.16.2p1v0 libxkbcommon gtk+4-- samba-- \
-	cmake ninja meson glslang fontforge py3-fonttools \
+	cmake ninja meson glslang fontforge py3-fonttools unzip-6.0p18 xdotool \
 	2>&1 | tee "$TOP/logs/vm-pkg_add.log"
 
 # Ports tree: the release's ports.tar.gz (matches the binary packages, see

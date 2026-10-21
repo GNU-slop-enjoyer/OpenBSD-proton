@@ -8,6 +8,10 @@
   emulators/wine.
 - strchrnul() (GNU) in Proton's overlay preload hack: use strchr()/strlen().
 
+Also (openbsd-proton): get_mapping_info() no longer calls malloc() for
+plain sections; it also runs for system APCs in signal context, where
+OpenBSD's malloc aborts on re-entry.
+
 Index: dlls/ntdll/unix/virtual.c
 --- dlls/ntdll/unix/virtual.c.orig
 +++ dlls/ntdll/unix/virtual.c
@@ -59,7 +63,64 @@ Index: dlls/ntdll/unix/virtual.c
  }
  
  #endif /* _WIN64 */
-@@ -4386,11 +4397,15 @@ void virtual_free_teb( TEB *teb )
+@@ -3509,14 +3520,17 @@ static unsigned int get_mapping_info( HA
+                                       struct pe_image_info **info, UNICODE_STRING *nt_name,
+                                       ANSI_STRING *exp_name )
+ {
+-    struct pe_image_info *image_info;
+-    SIZE_T namelen, total, size = 1024;
++    /* The first query uses a stack buffer: this also runs for system APCs
++     * (NtMapViewOfSection on behalf of another process), which may execute
++     * in a signal handler that interrupted malloc(), and plain sections
++     * return no image info at all. */
++    union { struct pe_image_info info; char buffer[1024]; } local;
++    struct pe_image_info *image_info = &local.info;
++    SIZE_T namelen, total, size = sizeof(local);
+     unsigned int status;
+ 
+     for (;;)
+     {
+-        if (!(image_info = malloc( size ))) return STATUS_NO_MEMORY;
+-
+         SERVER_START_REQ( get_mapping_info )
+         {
+             req->handle = wine_server_obj_handle( handle );
+@@ -3531,14 +3545,24 @@ static unsigned int get_mapping_info( HA
+         }
+         SERVER_END_REQ;
+         if (!status && total <= size) break;
+-        free( image_info );
++        if (image_info != &local.info) free( image_info );
+         if (status) return status;
+         if (*shared_file) NtClose( *shared_file );
+         size = total;
++        if (!(image_info = malloc( size ))) return STATUS_NO_MEMORY;
+     }
+ 
+     if (total)
+     {
++        if (image_info == &local.info)
++        {
++            if (!(image_info = malloc( total )))
++            {
++                if (*shared_file) NtClose( *shared_file );
++                return STATUS_NO_MEMORY;
++            }
++            memcpy( image_info, &local.info, total );
++        }
+         assert( total >= sizeof(*image_info) );
+         total -= sizeof(*image_info);
+         nt_name->Buffer = (WCHAR *)(image_info + 1);
+@@ -3547,7 +3571,7 @@ static unsigned int get_mapping_info( HA
+         exp_name->Length = exp_name->MaximumLength = total - namelen;
+         *info = image_info;
+     }
+-    else free( image_info );
++    else if (image_info != &local.info) free( image_info );
+ 
+     return STATUS_SUCCESS;
+ }
+@@ -4386,11 +4410,15 @@ void virtual_free_teb( TEB *teb )
          NtFreeVirtualMemory( GetCurrentProcess(), (void **)&teb->ChpeV2CpuAreaInfo, &size, MEM_RELEASE );
      }
  #endif
@@ -75,7 +136,7 @@ Index: dlls/ntdll/unix/virtual.c
      if (wow_teb && (ptr = ULongToPtr( wow_teb->DeallocationStack )))
      {
          size = 0;
-@@ -4676,6 +4691,42 @@ NTSTATUS virtual_set_tls_information( PR
+@@ -4676,6 +4704,42 @@ NTSTATUS virtual_set_tls_information( PR
  
  
  /***********************************************************************
@@ -118,7 +179,7 @@ Index: dlls/ntdll/unix/virtual.c
   *           virtual_alloc_thread_stack
   */
  NTSTATUS virtual_alloc_thread_stack( INITIAL_TEB *stack, ULONG_PTR limit_low, ULONG_PTR limit_high,
-@@ -4698,6 +4749,7 @@ NTSTATUS virtual_alloc_thread_stack( INI
+@@ -4698,6 +4762,7 @@ NTSTATUS virtual_alloc_thread_stack( INI
      status = map_view( &view, NULL, size, 0, VPROT_READ | VPROT_WRITE | VPROT_COMMITTED,
                         limit_low, limit_high, 0 );
      if (status != STATUS_SUCCESS) goto done;
@@ -126,7 +187,7 @@ Index: dlls/ntdll/unix/virtual.c
  
  #ifdef VALGRIND_STACK_REGISTER
      VALGRIND_STACK_REGISTER( view->base, (char *)view->base + view->size );
-@@ -4878,6 +4930,286 @@ static NTSTATUS grow_thread_stack( char
+@@ -4878,6 +4943,286 @@ static NTSTATUS grow_thread_stack( char
      return ret;
  }
  
@@ -413,7 +474,7 @@ Index: dlls/ntdll/unix/virtual.c
  
  /***********************************************************************
   *           virtual_handle_fault
-@@ -4936,6 +5268,14 @@ NTSTATUS virtual_handle_fault( EXCEPTION
+@@ -4936,6 +5281,14 @@ NTSTATUS virtual_handle_fault( EXCEPTION
                  ret = STATUS_SUCCESS;
          }
      }
@@ -428,7 +489,7 @@ Index: dlls/ntdll/unix/virtual.c
      mutex_unlock( &virtual_mutex );
      rec->ExceptionCode = ret;
      return ret;
-@@ -5052,8 +5392,13 @@ ssize_t virtual_locked_read( int fd, voi
+@@ -5052,8 +5405,13 @@ ssize_t virtual_locked_read( int fd, voi
      BOOL has_write_watch = FALSE;
      int err = EFAULT;
  
@@ -442,7 +503,7 @@ Index: dlls/ntdll/unix/virtual.c
  
      server_enter_uninterrupted_section( &virtual_mutex, &sigset );
      if (!check_write_access( addr, size, &has_write_watch ))
-@@ -5103,8 +5448,13 @@ ssize_t virtual_locked_recvmsg( int fd,
+@@ -5103,8 +5461,13 @@ ssize_t virtual_locked_recvmsg( int fd,
      BOOL has_write_watch = FALSE;
      int err = EFAULT;
  
@@ -456,7 +517,7 @@ Index: dlls/ntdll/unix/virtual.c
  
      server_enter_uninterrupted_section( &virtual_mutex, &sigset );
      for (i = 0; i < hdr->msg_iovlen; i++)
-@@ -6764,6 +7114,58 @@ NTSTATUS WINAPI NtMapViewOfSection( HAND
+@@ -6764,6 +7127,58 @@ NTSTATUS WINAPI NtMapViewOfSection( HAND
                                  offset_ptr, size_ptr, alloc_type, protect, 0 );
  }
  
@@ -515,7 +576,7 @@ Index: dlls/ntdll/unix/virtual.c
  /***********************************************************************
   *             NtMapViewOfSectionEx   (NTDLL.@)
   *             ZwMapViewOfSectionEx   (NTDLL.@)
-@@ -7195,6 +7597,9 @@ NTSTATUS WINAPI NtReadVirtualMemory( HAN
+@@ -7195,6 +7610,9 @@ NTSTATUS WINAPI NtReadVirtualMemory( HAN
      }
      else
      {
@@ -525,7 +586,7 @@ Index: dlls/ntdll/unix/virtual.c
          SERVER_START_REQ( read_process_memory )
          {
              req->handle = wine_server_obj_handle( process );
-@@ -7203,6 +7608,7 @@ NTSTATUS WINAPI NtReadVirtualMemory( HAN
+@@ -7203,6 +7621,7 @@ NTSTATUS WINAPI NtReadVirtualMemory( HAN
              if ((status = wine_server_call( req ))) size = 0;
          }
          SERVER_END_REQ;
@@ -533,7 +594,7 @@ Index: dlls/ntdll/unix/virtual.c
      }
      if (bytes_read) *bytes_read = size;
      return status;
-@@ -7220,6 +7626,9 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HA
+@@ -7220,6 +7639,9 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HA
  
      if (virtual_check_buffer_for_read( buffer, size ))
      {
@@ -543,7 +604,7 @@ Index: dlls/ntdll/unix/virtual.c
          SERVER_START_REQ( write_process_memory )
          {
              req->handle     = wine_server_obj_handle( process );
-@@ -7229,6 +7638,7 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HA
+@@ -7229,6 +7651,7 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HA
              size = reply->written;
          }
          SERVER_END_REQ;
