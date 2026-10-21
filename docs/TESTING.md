@@ -70,6 +70,9 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 3/4 | `emulators/proton-wine-addons` (wine-mono 11.2.0, wine-gecko 2.47.4 x86_64 — Proton's versions; upstream prebuilt PE, sha256 recorded, no upstream hashes published for the tarballs) package/install | obsd-vm | **pass** | `~builder/build-logs/addons.log` |
 | 2026-10-21 | 6 | .NET: new launcher prefix installs Wine Mono at first boot (66 s); Mono's `csc.exe` compiles `tests/dotnet/hello.cs`; it runs 6/6 (LINQ, generics, exceptions, threads, P/Invoke, 64-bit) | obsd-vm | **pass** | session transcript |
 | 2026-10-21 | 6/7 | Wine Gecko / .NET winetests: mscoree (4 units, 0 failures), mshtml (10 units; dom 3 and script 14 failures, rest 0), ieframe (3 units incl. webbrowser 18131 tests, 0 failures) | obsd-vm | **pass** except the noted failures | `~builder/winetest/out-addons` |
+| 2026-10-21 | 6 | 7-Zip 23.01 x64: the `.exe` installer is a 32-bit stub (cannot run); `.msi` installs with msiexec; `7z.exe` a/t/x of a 2-file archive, extracted files byte-identical | obsd-vm | **pass** (MSI route) | tests/apps/README.md |
+| 2026-10-21 | 7 | Notepad++ 8.9.8.1 x64 portable: opens a file; screenshot shows menus, toolbar, editor text, status bar correctly rendered (installer is a 32-bit stub) | obsd-vm | **pass** | tests/apps/README.md |
+| 2026-10-21 | 5 | launcher refuses 32-bit PE files with an explanation (after fixing OpenBSD `od` zero-padded output read as octal) | obsd-vm | **pass** | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 

@@ -167,3 +167,12 @@ msgothic from Ume), which need Adobe's afdko (not in ports).
 | other options reject lengths ≠ sizeof(int) | only odd-length probes in the test | open (edge case) |
 | no per-socket TCP_KEEPIDLE/TCP_KEEPCNT/TCP_KEEPINTVL (sysctl only) | SIO_KEEPALIVE_VALS/TCP_KEEPALIVE cannot be honoured | platform limitation |
 | connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | open: wineserver would have to recreate the Unix socket after a failed connect |
+
+## 32-bit installers (found with real applications, session 2)
+
+Installers of 64-bit programs are often 32-bit executables (7-Zip
+`7z2301-x64.exe`, Notepad++ `npp.*.Installer.x64.exe` are i386 PE
+stubs). They cannot run on OpenBSD (FEASIBILITY.md §2); wine only reports
+"failed to load …syswow64\ntdll.dll c0000135". `proton-openbsd run` now
+detects 32-bit PE files and says so. Workarounds: the program's `.msi`
+(64-bit msiexec works, e.g. 7-Zip) or a portable archive (Notepad++).

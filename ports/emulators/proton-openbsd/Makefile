@@ -6,7 +6,7 @@ ONLY_FOR_ARCHS =	amd64
 COMMENT =		Proton-style launcher for wine, DXVK and vkd3d-proton
 
 PKGNAME =		proton-openbsd-0.1
-REVISION =		3
+REVISION =		4
 CATEGORIES =		emulators games
 
 HOMEPAGE =		https://github.com/GNU-slop-enjoyer/OpenBSD-proton

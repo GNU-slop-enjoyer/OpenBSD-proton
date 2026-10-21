@@ -164,10 +164,25 @@ setup_log() {
 	export WINEDEBUG DXVK_LOG_LEVEL VKD3D_DEBUG VKD3D_SHADER_DEBUG
 }
 
+# Machine field of a PE file's COFF header ("014c" i386, "8664" x86_64),
+# empty if it is not a readable PE file.
+pe_machine() {
+	# OpenBSD's od zero-pads decimal output; strip it so it is not octal
+	off=$(od -An -tu4 -j60 -N4 "$1" 2>/dev/null | tr -d ' ' | sed 's/^0*//')
+	[ -n "$off" ] || return 0
+	[ "$(od -An -c -j"$off" -N2 "$1" 2>/dev/null | tr -d ' ')" = PE ] || return 0
+	od -An -tx2 -j$((off + 4)) -N2 "$1" 2>/dev/null | tr -d ' '
+}
+
 cmd=$1; shift
 case $cmd in
 run)
 	[ $# -ge 1 ] || usage
+	# Many "x64" installers are 32-bit programs; wine's own message for
+	# them (failing to load syswow64\ntdll.dll) does not say why.
+	if [ -f "$1" ] && [ "$(pe_machine "$1")" = 014c ]; then
+		die "$1 is a 32-bit Windows program; OpenBSD cannot run 32-bit Windows code (no 32-bit user code segment). Look for a 64-bit build, an .msi package or a portable .zip."
+	fi
 	setup_prefix
 	set_overrides
 	setup_log "$1"
