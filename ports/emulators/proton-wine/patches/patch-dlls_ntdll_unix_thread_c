@@ -8,6 +8,9 @@ pthread_stackseg_np(); only the initial thread gets a Wine kernel stack.
 server_init_thread() for 11.19.)
 Threads leave the signal relay registry in pthread_exit_wrapper().
 
+Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
+arguments in this file; see patch-include_wine_unixlib_h.
+
 Index: dlls/ntdll/unix/thread.c
 --- dlls/ntdll/unix/thread.c.orig
 +++ dlls/ntdll/unix/thread.c
@@ -82,7 +85,16 @@ Index: dlls/ntdll/unix/thread.c
  
      if (wow_teb)
      {
-@@ -1444,7 +1474,12 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE
+@@ -1318,6 +1348,8 @@ NTSTATUS WINAPI NtCreateThread( HANDLE *
+                                 HANDLE process, CLIENT_ID *id, CONTEXT *ctx, INITIAL_TEB *teb,
+                                 BOOLEAN suspended )
+ {
++    SYSCALL_NARROW_ARG( suspended );
++
+     FIXME( "%p %d %p %p %p %p %p %d, stub!\n",
+            handle, access, attr, process, id, ctx, teb, suspended );
+     return STATUS_NOT_IMPLEMENTED;
+@@ -1444,7 +1476,12 @@ NTSTATUS WINAPI NtCreateThreadEx( HANDLE
      thread_data->param = param;
  
      pthread_attr_init( &pthread_attr );
@@ -95,7 +107,7 @@ Index: dlls/ntdll/unix/thread.c
      pthread_attr_setguardsize( &pthread_attr, 0 );
      pthread_attr_setscope( &pthread_attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
      InterlockedIncrement( &nb_threads );
-@@ -2071,7 +2106,7 @@ static void set_native_thread_name( HAND
+@@ -2071,7 +2108,7 @@ static void set_native_thread_name( HAND
      len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
      nameA[len] = '\0';
      pthread_setname_np( nameA );
@@ -104,7 +116,7 @@ Index: dlls/ntdll/unix/thread.c
      unsigned int status;
      char nameA[64];
      int unix_pid, unix_tid, len;
-@@ -2098,9 +2133,13 @@ static void set_native_thread_name( HAND
+@@ -2098,9 +2135,13 @@ static void set_native_thread_name( HAND
          return;
      }
  

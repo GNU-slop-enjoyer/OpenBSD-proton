@@ -105,3 +105,29 @@ worth running when a process dies with SIGABRT and no message.
 | compiler-rt builtins location | must not write into the llvm package's resource dir | installed into the private resource dir |
 | meson flag probing | meson's `get_supported_arguments()` adds `-Werror=unused-command-line-argument`; wrapper flags `-rtlib/-unwindlib/-stdlib` are unused when compiling, so **every probed flag was silently dropped** (DXVK built without `-DDXVK_WSI_WIN32`, `-msse2`, …, then failed at run time with "DXVK_WSI_DRIVER environment variable unset") | wrap them in `--start-no-unused-arguments … --end-no-unused-arguments` (as llvm-mingw does) |
 | `-lpthread` | meson `dependency('threads')` → mingw driver links `-lpthread` | build mingw-w64 winpthreads |
+
+## Narrow syscall arguments and clang (found by winetest, session 2)
+
+`kernel32_test drive` spun forever under proton-wine: `GetLogicalDrives()`
+enumerates `\DosDevices` with `NtQueryDirectoryObject(…, single_entry=TRUE,
+restart=FALSE, &ctx)`, and the server always received index 0.
+
+Cause: the x86_64 syscall dispatcher (`dlls/ntdll/unix/signal_x86_64.c`)
+moves the Windows caller's arguments into SysV registers with 64-bit
+`movq`s. The Windows ABI leaves the upper bits of 8/16-bit arguments
+undefined (kernelbase stores `restart` with `movb $0x0,0x20(%rsp)`). Clang
+compiles SysV callees assuming 8/16-bit arguments are already extended to
+32 bits — `NtQueryDirectoryObject` tests `restart` with `testl %r8d,%r8d` —
+while GCC (Linux builds, the Steam runtime) re-extends in the callee. So on
+any clang-built Unix side (OpenBSD, also macOS) a FALSE can read as TRUE
+depending on stack garbage. Verified with a minimal test: clang emits
+`cmpl $1,%r8d` for a SysV `unsigned char` argument and `cmpb` for an
+`ms_abi` one. wine-11.19's ntdll.so has the identical `testl` and passes
+the drive test only because that stack slot happens to be clean.
+
+Fix (proton-wine p1): `SYSCALL_NARROW_ARG()` in `include/wine/unixlib.h`
+(an empty `asm` with a `"+r"` operand on x86_64 clang) at the entry of
+every implemented syscall with such arguments: 44 functions, 57 arguments
+in ntdll and win32u, listed by `scripts/debug/narrow-syscall-args.py`
+(it parses the definitions of all 738 implemented syscalls in the
+generated syscall tables). Candidate for emulators/wine and upstream wine.

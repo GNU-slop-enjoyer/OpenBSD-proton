@@ -1,6 +1,9 @@
 Proton's ntsync_tmp.h is a copy of a Linux uapi header (<linux/types.h>);
 only include it on Linux.  Without it the server-based fallback is used.
 
+Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
+arguments in this file; see patch-include_wine_unixlib_h.
+
 Index: dlls/ntdll/unix/sync.c
 --- dlls/ntdll/unix/sync.c.orig
 +++ dlls/ntdll/unix/sync.c
@@ -14,3 +17,153 @@ Index: dlls/ntdll/unix/sync.c
  
  #include "ntstatus.h"
  #define WIN32_NO_STATUS
+@@ -1126,6 +1128,8 @@ NTSTATUS WINAPI NtCreateEvent( HANDLE *h
+     data_size_t len;
+     struct object_attributes *objattr;
+ 
++    SYSCALL_NARROW_ARG( state );
++
+     TRACE( "access %#x, name %s, type %u, state %u\n", access,
+            attr ? debugstr_us(attr->ObjectName) : "(null)", type, state );
+ 
+@@ -1317,6 +1321,8 @@ NTSTATUS WINAPI NtCreateMutant( HANDLE *
+     data_size_t len;
+     struct object_attributes *objattr;
+ 
++    SYSCALL_NARROW_ARG( owned );
++
+     TRACE( "access %#x, name %s, owned %u\n", access,
+            attr ? debugstr_us(attr->ObjectName) : "(null)", owned );
+ 
+@@ -1858,6 +1864,8 @@ NTSTATUS WINAPI NtWaitForDebugEvent( HAN
+     unsigned int ret;
+     BOOL wait = TRUE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     for (;;)
+     {
+         SERVER_START_REQ( wait_debug_event )
+@@ -1960,9 +1968,13 @@ NTSTATUS WINAPI NtQueryDirectoryObject(
+                                         ULONG *context, ULONG *ret_size )
+ {
+     unsigned int status, i, count, total_len, pos, used_size, used_count, strpool_head;
+-    ULONG index = restart ? 0 : *context;
++    ULONG index;
+     struct directory_entry *entries;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart );
++
++    index = restart ? 0 : *context;
+     if (!(entries = malloc( size ))) return STATUS_NO_MEMORY;
+ 
+     SERVER_START_REQ( get_directory_entries )
+@@ -2240,6 +2252,8 @@ NTSTATUS WINAPI NtSetTimer( HANDLE handl
+ {
+     unsigned int ret = STATUS_SUCCESS;
+ 
++    SYSCALL_NARROW_ARG( resume );
++
+     TRACE( "(%p,%p,%p,%p,%08x,0x%08x,%p)\n", handle, when, callback, arg, resume, period, state );
+ 
+     SERVER_START_REQ( set_timer )
+@@ -2339,6 +2353,8 @@ NTSTATUS WINAPI NtWaitForMultipleObjects
+     UINT i, flags = SELECT_INTERRUPTIBLE;
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     if (!count || count > MAXIMUM_WAIT_OBJECTS) return STATUS_INVALID_PARAMETER_1;
+     if (type != WaitAll && type != WaitAny) FIXME( "Unsupported wait type %u\n", type );
+ 
+@@ -2379,6 +2395,8 @@ NTSTATUS WINAPI NtWaitForSingleObject( H
+     UINT flags = SELECT_INTERRUPTIBLE;
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, alertable %u, timeout %s\n", handle, alertable, debugstr_timeout(timeout) );
+ 
+     if ((ret = inproc_wait( 1, &handle, WaitAny, alertable, timeout )) != STATUS_NOT_IMPLEMENTED)
+@@ -2406,6 +2424,8 @@ NTSTATUS WINAPI NtSignalAndWaitForSingle
+     UINT flags = SELECT_INTERRUPTIBLE;
+     NTSTATUS ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "signal %p, wait %p, alertable %u, timeout %s\n", signal, wait, alertable, debugstr_timeout(timeout) );
+ 
+     if (!signal) return STATUS_INVALID_HANDLE;
+@@ -2452,6 +2472,8 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
+ {
+     unsigned int status = STATUS_SUCCESS;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     /* if alertable, we need to query the server */
+     if (alertable)
+     {
+@@ -2588,6 +2610,8 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
+ {
+     static BOOL has_request = FALSE;
+ 
++    SYSCALL_NARROW_ARG( set );
++
+     TRACE( "(%u,%u,%p), semi-stub!\n", res, set, current_res );
+ 
+     /* Wine has no support for anything other that 1 ms and does not keep of
+@@ -2716,6 +2740,8 @@ NTSTATUS WINAPI NtWaitForKeyedEvent( HAN
+     union select_op select_op;
+     UINT flags = SELECT_INTERRUPTIBLE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
+ 
+     if (!handle) handle = keyed_event;
+@@ -2737,6 +2763,8 @@ NTSTATUS WINAPI NtReleaseKeyedEvent( HAN
+     union select_op select_op;
+     UINT flags = SELECT_INTERRUPTIBLE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
+ 
+     if (!handle) handle = keyed_event;
+@@ -2919,6 +2947,8 @@ NTSTATUS WINAPI NtRemoveIoCompletionEx(
+     unsigned int status;
+     ULONG i = 0;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "%p %p %u %p %p %u\n", handle, info, count, written, timeout, alertable );
+ 
+     if (!count) return STATUS_INVALID_PARAMETER;
+@@ -3165,6 +3195,8 @@ NTSTATUS WINAPI NtListenPort( HANDLE han
+ NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
+                                      LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
+ {
++    SYSCALL_NARROW_ARG( accept );
++
+     FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
+     return STATUS_NOT_IMPLEMENTED;
+ }
+@@ -3748,6 +3780,8 @@ NTSTATUS WINAPI NtCreateTransaction( HAN
+  */
+ NTSTATUS WINAPI NtCommitTransaction( HANDLE transaction, BOOLEAN wait )
+ {
++    SYSCALL_NARROW_ARG( wait );
++
+     FIXME( "%p, %d stub.\n", transaction, wait );
+ 
+     return STATUS_SUCCESS;
+@@ -3758,6 +3792,8 @@ NTSTATUS WINAPI NtCommitTransaction( HAN
+  */
+ NTSTATUS WINAPI NtRollbackTransaction( HANDLE transaction, BOOLEAN wait )
+ {
++    SYSCALL_NARROW_ARG( wait );
++
+     FIXME( "%p, %d stub.\n", transaction, wait );
+ 
+     return STATUS_ACCESS_VIOLATION;

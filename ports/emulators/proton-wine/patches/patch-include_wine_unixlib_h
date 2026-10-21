@@ -1,0 +1,33 @@
+Narrow syscall arguments (BOOLEAN, WORD, BYTE, ...) arrive from the
+x86_64 syscall dispatcher with the undefined upper bits the Windows caller
+left in the register or stack slot.  Clang compiles these SysV functions
+assuming the caller zero/sign-extended them to 32 bits (GCC does not), so a
+FALSE could test as TRUE (NtQueryDirectoryObject restart=TRUE made
+GetLogicalDrives() loop forever).  SYSCALL_NARROW_ARG() (wine/unixlib.h)
+makes them opaque at function entry.  The affected syscalls were listed by
+scripts/debug/narrow-syscall-args.py in the openbsd-proton project.
+
+Index: include/wine/unixlib.h
+--- include/wine/unixlib.h.orig
++++ include/wine/unixlib.h
+@@ -269,6 +269,20 @@ NTSYSAPI int ntdll_wcsnicmp( const WCHAR
+ #define wcstol(str,e,b)    ntdll_wcstol(str,e,b)
+ #define wcstoul(str,e,b)   ntdll_wcstoul(str,e,b)
+ 
++/* Syscall arguments narrower than 32 bits (BOOLEAN, WORD, ...) reach the
++ * Unix side with the undefined upper bits the Windows caller left in the
++ * register or stack slot, as the x86_64 syscall dispatcher moves full
++ * 64-bit values.  Clang compiles SysV functions assuming such arguments
++ * were zero- or sign-extended to 32 bits by the caller (GCC does not), so
++ * e.g. a BOOLEAN FALSE can test as TRUE.  Making the argument opaque to
++ * the compiler at function entry forces it to use only the declared
++ * width. */
++#if defined(__x86_64__) && defined(__clang__)
++#define SYSCALL_NARROW_ARG(arg) __asm__( "" : "+r" (arg) )
++#else
++#define SYSCALL_NARROW_ARG(arg) do { } while (0)
++#endif
++
+ #else /* WINE_UNIX_LIB */
+ 
+ extern unixlib_handle_t __wine_unixlib_handle;

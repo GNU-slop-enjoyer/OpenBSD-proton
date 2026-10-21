@@ -77,9 +77,7 @@ install_dll() {
 setup_prefix() {
 	if [ ! -d "$SYS32" ]; then
 		mkdir -p "$WINEPREFIX" || die "cannot create $WINEPREFIX"
-		# Proton ships wine-mono and wine-gecko; without them wineboot
-		# opens a dialog offering to download them and waits for a click.
-		# Skip that: mscoree/mshtml stay uninstalled in this prefix.
+		# see the mscoree/mshtml note at set_overrides()
 		WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" \
 		    "$WINE" wineboot -i || die "wineboot failed for $WINEPREFIX"
 		"$WINEDIR/bin/wineserver" -w
@@ -93,8 +91,11 @@ setup_prefix() {
 
 # WINEDLLOVERRIDES: "n" for the DLLs we installed, after anything the
 # user set; PROTON_NO_D3D11/PROTON_NO_D3D10 disable those APIs as Proton
-# does.
-overrides=""
+# does.  mscoree and mshtml are disabled because Wine Mono and Wine Gecko
+# are not packaged: otherwise wine offers to download them in a dialog
+# that blocks until clicked, also when it updates a prefix after a
+# proton-wine upgrade.
+overrides="mscoree,mshtml="
 add_override() {
 	overrides="${overrides:+$overrides;}$1"
 }

@@ -96,7 +96,7 @@ DXVK and vkd3d-proton need a Vulkan driver, which on
 means Mesa's anv or radv on Intel or AMD graphics.
 Steam, Steam's runtime and anti-cheat systems are not supported.
 .Pp
-Wine Mono and Wine Gecko are not installed into new prefixes, so programs
-that need .NET or wine's HTML engine
-.Pq mshtml
-do not work.
+Wine Mono and Wine Gecko are not packaged, so
+.Nm
+disables mscoree and mshtml and programs that need .NET or wine's HTML
+engine do not work.

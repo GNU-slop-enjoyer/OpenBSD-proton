@@ -1,0 +1,30 @@
+Narrow syscall arguments (BOOLEAN, WORD, BYTE, ...) arrive from the
+x86_64 syscall dispatcher with the undefined upper bits the Windows caller
+left in the register or stack slot.  Clang compiles these SysV functions
+assuming the caller zero/sign-extended them to 32 bits (GCC does not), so a
+FALSE could test as TRUE (NtQueryDirectoryObject restart=TRUE made
+GetLogicalDrives() loop forever).  SYSCALL_NARROW_ARG() (wine/unixlib.h)
+makes them opaque at function entry.  The affected syscalls were listed by
+scripts/debug/narrow-syscall-args.py in the openbsd-proton project.
+
+Index: dlls/win32u/class.c
+--- dlls/win32u/class.c.orig
++++ dlls/win32u/class.c
+@@ -697,6 +697,8 @@ ULONG WINAPI NtUserGetAtomName( ATOM ato
+     WCHAR buffer[MAX_ATOM_LEN];
+     UINT size = 0;
+ 
++    SYSCALL_NARROW_ARG( atom );
++
+     if (atom < MAXINTATOM)
+     {
+         if (!atom)
+@@ -950,6 +952,8 @@ ULONG_PTR WINAPI NtUserSetClassLongPtr(
+  */
+ WORD WINAPI NtUserSetClassWord( HWND hwnd, INT offset, WORD newval )
+ {
++    SYSCALL_NARROW_ARG( newval );
++
+     return set_class_long_size( hwnd, offset, newval, sizeof(WORD), TRUE );
+ }
+ 

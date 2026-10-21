@@ -55,6 +55,10 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 8 | `d3d11probe.exe` with wined3d (proton-wine p0, after the two winex11 fixes): 1 adapter (wined3d's stand-in description for llvmpipe), **D3D11 device at feature level 11_0** | obsd-vm | **pass** | session transcript |
 | 2026-10-21 | 8 | `d3d11render.exe` with wined3d (OpenGL → Mesa llvmpipe, Xvfb): runtime HLSL compile, offscreen draw, read-back of red/blue pixels | obsd-vm | **pass 8/8** — first rendered Direct3D output | session transcript |
 | 2026-10-21 | 8 | `d3d11render.exe` with DXVK | obsd-vm | **fail (expected)**: D3D11CreateDevice 0x80004005, no Vulkan device | session transcript |
+| 2026-10-21 | 5–8 | Wine conformance tests, 20 suites / 252 units (test binaries from the proton-wine 11.0 tree), proton-wine p0 vs OpenBSD's wine-11.19 package on the same binaries | obsd-vm | proton p0: 187 pass / 47 fail / 12 crash / 6 timeout; wine-11.19: 183 / 52 / 13 / 4. 57 units fail on both (OpenBSD/wine-port limitations or 11.0-vs-11.19 differences); 8 only on proton-wine (see below) | `~builder/winetest/out-proton`, `out-1119` |
+| 2026-10-21 | 5 | proton-only `kernel32 drive` (endless `NtQueryDirectoryObject(restart=garbage)` loop) | obsd-vm | **fail → fixed in p1** (narrow syscall arguments, COMPATIBILITY.md); now 130 tests, 0 failures | session transcript |
+| 2026-10-21 | 5 | proton-only `kernel32 path` (17 failures) | obsd-vm | **expected**: Proton adds `C:\Program Files (x86)\Steam` to the DLL search path | `kernel32_test.path.log` |
+| 2026-10-21 | 4/5 | proton-wine p1 package + launcher p0 (mscoree/mshtml always disabled): existing prefix updated after upgrade without the Mono/Gecko dialog; `run basic.exe` 6/6; `d3d11render` 8/8 with wined3d | obsd-vm | **pass** | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 

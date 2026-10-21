@@ -1,6 +1,9 @@
 OpenBSD lacks xattrs; read symlink reparse data from regular files with
 Wine's '?' suffix, matching server/fd.c.
 
+Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
+arguments in this file; see patch-include_wine_unixlib_h.
+
 Index: dlls/ntdll/unix/file.c
 --- dlls/ntdll/unix/file.c.orig
 +++ dlls/ntdll/unix/file.c
@@ -91,7 +94,17 @@ Index: dlls/ntdll/unix/file.c
      if (attr_len >= 0 && attr_len >= sizeof(ULONG))
      {
          *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
-@@ -3978,6 +4024,7 @@ static NTSTATUS nt_to_unix_file_name_int
+@@ -2939,6 +2985,9 @@ NTSTATUS WINAPI NtQueryDirectoryFile( HA
+     struct dir_data *data;
+     unsigned int status;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart_scan );
++
+     TRACE("(%p %p %p %p %p %p 0x%08x 0x%08x 0x%08x %s 0x%08x\n",
+           handle, event, apc_routine, apc_context, io, buffer,
+           length, info_class, single_entry, debugstr_us(mask),
+@@ -3978,6 +4027,7 @@ static NTSTATUS nt_to_unix_file_name_int
      unix_len = name_len * 3 + MAX_DIR_ENTRY_LEN + 3;
      if (!(unix_name = malloc( unix_len ))) return STATUS_NO_MEMORY;
      unix_name[0] = '.';
@@ -99,7 +112,7 @@ Index: dlls/ntdll/unix/file.c
  
      if (!(status = server_get_unix_fd( attr->RootDirectory, 0, &root_fd, &needs_close, &type, NULL )))
      {
-@@ -4348,10 +4395,17 @@ static NTSTATUS resolve_reparse_point( i
+@@ -4348,10 +4398,17 @@ static NTSTATUS resolve_reparse_point( i
  
      if (!(data = malloc( MAXIMUM_REPARSE_DATA_BUFFER_SIZE ))) return STATUS_NO_MEMORY;
  
@@ -116,4 +129,33 @@ Index: dlls/ntdll/unix/file.c
 +#endif
          return errno_to_status( errno );
      }
+ 
+@@ -7463,6 +7520,9 @@ NTSTATUS WINAPI NtLockFile( HANDLE file,
+     HANDLE handle;
+     BOOLEAN async;
+ 
++    SYSCALL_NARROW_ARG( dont_wait );
++    SYSCALL_NARROW_ARG( exclusive );
++
+     if (apc || io_status || key)
+     {
+         FIXME("Unimplemented yet parameter\n");
+@@ -7634,6 +7694,8 @@ NTSTATUS WINAPI NtNotifyChangeDirectoryF
+     unsigned int status;
+     ULONG size = max( 4096, buffer_size );
+ 
++    SYSCALL_NARROW_ARG( subtree );
++
+     TRACE( "%p %p %p %p %p %p %u %u %d\n",
+            handle, event, apc, apc_context, iosb, buffer, buffer_size, filter, subtree );
+ 
+@@ -8148,6 +8210,9 @@ NTSTATUS WINAPI NtQueryEaFile( HANDLE ha
+     int fd, needs_close;
+     NTSTATUS status;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart );
++
+     FIXME( "(%p,%p,%p,%d,%d,%p,%d,%p,%d) semi-stub\n",
+            handle, io, buffer, length, single_entry, list, list_len, index, restart );
  

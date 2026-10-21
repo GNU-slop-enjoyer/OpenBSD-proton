@@ -3,6 +3,54 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
+## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
+
+### What changed
+- **`ports/devel/mingw-w64`** (new): x86_64-w64-mingw32 C/C++ toolchain on
+  the installed llvm-22 — mingw-w64 v13.0.0 headers, UCRT CRT,
+  winpthreads, widl; LLVM 22.1.8 compiler-rt builtins, libunwind,
+  libc++abi, libc++. Packaged (`mingw-w64-13.0.0p0`), `make test` passes,
+  static and shared C++ programs run under proton-wine.
+- **`ports/graphics/dxvk`** (new): DXVK 2.7.1 at Proton's `a6764047`, one
+  patch (singleton null instance). Packaged.
+- **`ports/graphics/vkd3d-proton`** (new): vkd3d-proton at Proton's
+  `212991fc`. Packaged.
+- **`ports/emulators/proton-openbsd`** (new): `proton-openbsd run prog.exe`
+  launcher + man page; installs DXVK/vkd3d-proton into the prefix like
+  Proton's `setup_prefix()`, `PROTON_*` switches. Packaged.
+- **`emulators/proton-wine` p0**: 2 backported upstream wine fixes
+  (GL_EXTENSIONS use-after-free; overlapping memcpy that OpenBSD libc
+  aborts on). 54 patches; clean `make patch` reproduces the tested tree.
+- Tests: `tests/pe/d3d11probe.cpp`, `d3d11render.cpp`, `d3d12probe.cpp`;
+  `scripts/vm/winetest-build.sh` / `winetest-run.sh` (Wine conformance
+  tests from the port build tree); `scripts/debug/memcpy-overlap.c`.
+- Docs: FEASIBILITY §4/4a, COMPATIBILITY (runtime bugs, toolchain issues),
+  DECISIONS D8/D9, DEPENDENCIES, BUILDING §7–9, TESTING, ROADMAP.
+- Commits on `stage-a/openbsd-vm-baseline`: `7db04ac`, `39febb5`,
+  `c487e72` (pushed).
+
+### Key results (OpenBSD 8.0 VM, no GPU)
+- **Direct3D 11 renders** through proton-wine with wined3d (OpenGL on Mesa
+  llvmpipe, Xvfb): `d3d11render.exe` 8/8.
+- DXVK and vkd3d-proton load and fail cleanly at Vulkan instance/device
+  creation (no Vulkan device in the VM) — rendering with them needs real
+  Intel/AMD hardware.
+- Winetest (20 DLL test suites, 252 units, proton-wine p0, run partly
+  concurrently with port builds): pass 187, fail 47, crash 12, timeout 6.
+  Comparison with wine-11.19 on the same binaries: see below / TESTING.md.
+
+### Mistakes caught this session
+- Wait loops using `pgrep -f`/`pkill -f` matched their own ssh command
+  line (never finished / killed the session); use bracketed patterns and
+  keep kill and launch commands in separate ssh calls.
+- OpenBSD `grep` has no `\|` in basic regexps: several searches silently
+  found nothing until switched to `grep -E`.
+- `/etc/mk.conf` assigns `WRKOBJDIR`, so the environment variable is
+  ignored; pass `WRKOBJDIR=` on the make command line.
+- The first mingw-w64 p0 package lacked widl (stale PLIST; pkg_create
+  ignores unlisted files). Always `make update-plist` after changing what
+  a port installs.
+
 ## 2026-10-20 — Session 1: environment, OpenBSD VM, baseline build start
 
 ### Environment (verified)

@@ -1,0 +1,32 @@
+Narrow syscall arguments (BOOLEAN, WORD, BYTE, ...) arrive from the
+x86_64 syscall dispatcher with the undefined upper bits the Windows caller
+left in the register or stack slot.  Clang compiles these SysV functions
+assuming the caller zero/sign-extended them to 32 bits (GCC does not), so a
+FALSE could test as TRUE (NtQueryDirectoryObject restart=TRUE made
+GetLogicalDrives() loop forever).  SYSCALL_NARROW_ARG() (wine/unixlib.h)
+makes them opaque at function entry.  The affected syscalls were listed by
+scripts/debug/narrow-syscall-args.py in the openbsd-proton project.
+
+Index: dlls/ntdll/unix/registry.c
+--- dlls/ntdll/unix/registry.c.orig
++++ dlls/ntdll/unix/registry.c
+@@ -874,6 +874,9 @@ NTSTATUS WINAPI NtNotifyChangeMultipleKe
+ {
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     TRACE( "(%p,%u,%p,%p,%p,%p,%p,0x%08x, 0x%08x,%p,0x%08x,0x%08x)\n",
+            key, count, attr, event, apc, apc_context, io,
+            filter, async, buffer, length, subtree );
+@@ -915,6 +918,9 @@ NTSTATUS WINAPI NtNotifyChangeKey( HANDL
+                                    IO_STATUS_BLOCK *io, ULONG filter, BOOLEAN subtree,
+                                    void *buffer, ULONG length, BOOLEAN async )
+ {
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     return NtNotifyChangeMultipleKeys( key, 0, NULL, event, apc, apc_context,
+                                        io, filter, subtree, buffer, length, async );
+ }
