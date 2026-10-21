@@ -24,12 +24,27 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [x] Fetch `ValveSoftware/wine` at `e60892cc`; patch-check the OpenBSD tree against it
 - [x] Rebase OpenBSD patches onto Valve's fork (52 patches)
 - [x] `emulators/proton-wine` port; builds, packages, passes tiers 5–7
-- [ ] Broader application tests with Proton wine: winetest subsets (in progress, `scripts/vm/winetest-*.sh`), real Windows programs
+- [x] Broader application tests with Proton wine: full winetest (p8: 230/278 units), real Windows programs (7-Zip, Notepad++, OpenTTD, SuperTuxKart)
+- [x] OpenBSD-specific fixes found against a Linux reference build (debugging without ptrace, process/CPU info, gcrypt, getaddrinfo, %fs, cwm focus loops)
 
 ## M4 — Launcher (Stage F/G)
 - [x] `proton`-equivalent launcher `emulators/proton-openbsd` (`proton-openbsd run …`): prefix setup, DXVK/vkd3d-proton installation, `PROTON_USE_WINED3D`/`PROTON_DXVK_D3D8`/`PROTON_NO_D3D10/11`/`PROTON_LOG`
 - [x] wine-mono / wine-gecko for .NET and mshtml apps: `emulators/proton-wine-addons` (Proton's versions)
-- [ ] Application test matrix (TESTING.md)
+- [ ] Application test matrix (TESTING.md) — tiers 5–10 done in the VM; real-hardware Vulkan pending
+
+## M5 — Performance and remaining platform gaps
+- [ ] In-process synchronization for kernel objects. Measured (`tests/pe/syncbench.c`):
+      a wait on a signaled event costs 17 µs on OpenBSD (every wait/set is a wineserver
+      round trip), 4.8 µs with server-side sync on Linux and 0.12 µs with Proton's fsync.
+      The raw pipe round trip is 2.5× slower in the OpenBSD VM than on the Linux host, so
+      the server path cannot get close; fsync needs Linux futex_waitv, esync needs eventfd.
+      Candidate: an esync-style backend on OpenBSD primitives (shared memory + futex(2)
+      for single-object waits, kqueue/pipes for multi-object waits), behind an opt-in
+      environment variable until it passes the sync winetests. In-process locks
+      (SRW/condition variables/WaitOnAddress, kqueue EVFILT_USER) are already 6 µs vs 4 µs.
+- [ ] Directory reparse points (symlinks/junctions to directories) without xattrs
+- [ ] Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path
+- [ ] Sending the emulators/wine-11.19 bundle upstream (needs the owner's OK)
 
 ## Out of scope unless something changes
 - 32-bit PE (kernel lacks a 32-bit user code segment; FEASIBILITY.md §2)

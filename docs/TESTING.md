@@ -101,6 +101,7 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 2–7 | emulators/wine-11.19 with the full 58-patch bundle (local wine-11.19p3: build, package, install; same 8 implicit-declaration warnings as the original port) | obsd-vm | **pass**: ntdll info no longer aborts DEBUG_PROCESS children (0 assertions; debugger/memory/CPU failures gone — remaining are the handle-table checks that fail on stock 11.19 too and TLS-vector differences of the 11.0 test binary), `sysinfo.exe` 25/25, `basic.exe` 6/6, `gui.exe` 5/5, ws2_32 protocol 1 (the passing todo), ntdll exception 0 fs mismatches, ntdll om 0, ntdll virtual 0, ntdll change 9, kernel32 console 0 (under cwm). Port directory restored afterwards | `~builder/winetest/out-1119d` |
 | 2026-10-22 | 4–9 | proton-wine p9 + proton-openbsd 0.1p6 packages, fresh launcher prefix under cwm (prefix creation 273 s incl. Wine Mono): basic 6/6, gui 5/5, sysinfo 25/25, d3d11render (wined3d) 8/8, audio 15/15 on reruns (first run right after prefix creation 13/15, log not kept) | obsd-vm | **pass** | session transcript |
 | 2026-10-22 | 9/10 | SuperTuxKart 1.5 race via proton-openbsd 0.1p6 / proton-wine p9 under cwm with PulseAudio (null sink): game renders (llvmpipe), `pactl list sink-inputs` shows an uncorked `supertuxkart.exe` stream (float32 44.1 kHz stereo) through winepulse; music and sfx assets load. "SFXManager: Throttling sfx" warnings (sound thread starved while llvmpipe renders on the CPU) | obsd-vm | **pass** (audio path; audibility on real hardware not tested) | session transcript |
+| 2026-10-22 | — | `tests/pe/syncbench.c` (new): µs per operation — OpenBSD VM / Linux host server-side / Linux fsync: event ping-pong 33.7 / 12.2 / 2.9; wait on signaled event 17.5 / 4.8 / 0.12; semaphore release+wait 32.4 / 9.2 / 0.47; mutex 32.9 / 9.1 / 0.47; condition variable ping-pong 6.0 / 3.7 / 4.4; WaitOnAddress ping-pong 6.1 / 4.2 / 4.2; critical section 0.01 everywhere. Raw pipe round trip (native C): 9.2 µs VM vs 3.7 µs host | obsd-vm, gentoo-host | measurement (ROADMAP M5) | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio on real hardware (sndio sink), game controllers, Proton game, Steam | — | not tested | |
 
@@ -131,6 +132,9 @@ command and log. "Not tested" means exactly that.
 - `tests/pe/audio.c` (`make -C tests/pe audio`): WASAPI playback in polled
   and event-driven mode; checks the audio clock rate, underruns and event
   spacing. Needs a PulseAudio server (a null sink is enough).
+- `tests/pe/syncbench.c` (`make -C tests/pe syncbench`): latency of
+  kernel-object waits (wineserver round trips on OpenBSD) and of in-process
+  locks; prints µs per operation, no pass/fail.
 - Wine conformance tests: `scripts/vm/winetest-build.sh` builds the
   `*_test.exe` files from a port's build tree (copy reconfigured without
   `--disable-tests`); `scripts/vm/winetest-run.sh` runs each test unit
