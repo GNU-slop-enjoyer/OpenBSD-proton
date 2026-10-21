@@ -17,7 +17,7 @@ GH_PROJECT =		wine
 GH_COMMIT =		e60892cc2398b0a83c332a2078c7b85e47bdb42b
 DISTNAME =		proton-wine-11.0.2e
 PKGNAME =		proton-wine-11.0.20261008
-REVISION =		7
+REVISION =		8
 
 CATEGORIES =		emulators
 

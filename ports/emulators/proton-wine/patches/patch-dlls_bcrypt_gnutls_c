@@ -1,0 +1,18 @@
+Call gcry_check_version() after loading libgcrypt: Proton never did, so
+libgcrypt initialized itself on first use and logged "missing
+initialization - please fix the application" to syslog.
+
+Index: dlls/bcrypt/gnutls.c
+--- dlls/bcrypt/gnutls.c.orig
++++ dlls/bcrypt/gnutls.c
+@@ -572,6 +572,10 @@ static NTSTATUS gnutls_process_attach( v
+         LOAD_FUNCPTR(gcry_sexp_nth_mpi);
+         LOAD_FUNCPTR(gcry_sexp_nth_data);
+ 
++        /* initializes the library; without it libgcrypt initializes itself on
++         * first use and logs "missing initialization" to syslog */
++        if (gcrypt_available) pgcry_check_version( NULL );
++
+         if (0)
+         {
+             pgcry_control(GCRYCTL_SET_VERBOSITY, 9);
