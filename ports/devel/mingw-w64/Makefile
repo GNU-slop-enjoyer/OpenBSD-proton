@@ -57,14 +57,14 @@ STEPS =			headers crt builtins winpthreads runtimes widl
 do-build:
 	cd ${WRKDIR} && ${SETENV} ${MAKE_ENV} ${BUILD_ENV} \
 	    TC_PREFIX=${WRKDIR}/stage WIDL_PREFIX=${TRUEPREFIX}/${TC_DIR} \
-	    ${SH} ${FILESDIR}/mingw-w64-build.sh wrappers ${STEPS}
+	    /bin/sh ${FILESDIR}/mingw-w64-build.sh wrappers ${STEPS}
 
 do-install:
 	${INSTALL_DATA_DIR} ${PREFIX}/${TC_DIR}
 	cp -R ${WRKDIR}/stage/${TARGET} ${WRKDIR}/stage/lib ${PREFIX}/${TC_DIR}/
 	cd ${WRKDIR} && ${SETENV} ${MAKE_ENV} ${BUILD_ENV} \
 	    TC_PREFIX=${TRUEPREFIX}/${TC_DIR} TC_DESTDIR=${DESTDIR} \
-	    ${SH} ${FILESDIR}/mingw-w64-build.sh wrappers widl_install
+	    /bin/sh ${FILESDIR}/mingw-w64-build.sh wrappers widl_install
 	${INSTALL_DATA_DIR} ${PREFIX}/bin
 .for t in clang clang++ gcc g++ cc c++ ar ranlib nm objcopy objdump strip \
     readelf strings size dlltool windres ld widl

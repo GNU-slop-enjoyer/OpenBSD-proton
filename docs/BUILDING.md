@@ -111,6 +111,7 @@ Using DXVK in a prefix:
 
 ## 8. Launcher
 
+    cd /usr/ports/fonts/proton-fonts && make package   # needs fontforge, py3-fonttools
     cd /usr/ports/emulators/proton-openbsd && make package
     doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add proton-openbsd
     proton-openbsd run program.exe        # see proton-openbsd(1)

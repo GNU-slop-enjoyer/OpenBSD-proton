@@ -151,6 +151,9 @@ treats the external entries as stale and deletes them — together with the
 wine.inf values of the same name — so Tahoma vanishes from the registry.
 `proton-openbsd` therefore links wine's fonts (and `PROTON_FONTS_DIR`)
 before `wineboot -i`, like Proton. With that, both dwrite units pass
-(0 failures). Proton's own fonts (Liberation/Noto/Source Han rebuilt as
-Arial, Times New Roman, MS YaHei, SimSun, …) are not packaged yet; their
-registry entries point to missing files, which DirectWrite skips.
+(0 failures). Proton's own fonts are packaged as `fonts/proton-fonts` (built like
+Proton's Makefile: fontforge renames Liberation to Arial/Times New
+Roman/Georgia/Courier New, `merge.py` with fontTools builds Microsoft Sans
+Serif and Nirmala UI from Noto); the launcher links them too. Still
+missing: Proton's CJK fonts (msyh, simsun, malgun from Source Han Sans,
+msgothic from Ume), which need Adobe's afdko (not in ports).

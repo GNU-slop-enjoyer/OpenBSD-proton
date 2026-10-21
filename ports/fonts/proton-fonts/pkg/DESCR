@@ -1,0 +1,9 @@
+Replacements for common Windows fonts, generated the same way as in
+Valve's Proton: Liberation Sans, Serif and Mono renamed to Arial, Times
+New Roman, Georgia and Courier New, and Microsoft Sans Serif and Nirmala
+UI merged from Noto Sans fonts. These fonts are not the Microsoft fonts;
+the names are used for compatibility with programs that require them.
+
+proton-openbsd(1) links them into wine prefixes, where Proton's wine
+expects them in C:\windows\Fonts. Proton's CJK fonts (from Source Han
+Sans and Ume) are not included.

@@ -34,6 +34,15 @@ commits).
   vkd3d-proton.
 - License: LGPL 2.1 or later.
 
+## fonts/proton-fonts
+
+- Source: `ValveSoftware/Proton` `bc896217ff` (proton-11.0-2e) `fonts/`
+  (Noto fonts, patches, merge script) and its `fonts/liberation-fonts`
+  submodule `4b01920461`. Build steps mirror Proton's Makefile.in
+  (`files/build-fonts.sh`).
+- Not included: the CJK fonts (need afdko).
+- License: SIL OFL 1.1 (fonts); merge.py Apache 2.0/MIT.
+
 ## devel/mingw-w64
 
 - Sources: mingw-w64 v13.0.0 release tarball (SourceForge; its detached
