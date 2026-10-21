@@ -129,6 +129,18 @@ DXVK and vkd3d-proton need a Vulkan driver, which on
 means Mesa's anv or radv on Intel or AMD graphics.
 Steam, Steam's runtime and anti-cheat systems are not supported.
 .Pp
+Sound goes through wine's PulseAudio driver: the PulseAudio client
+library starts a
+.Xr pulseaudio 1
+daemon on demand, which plays through
+.Xr sndiod 8 .
+If programs are silent, check that
+.Ic pactl info
+reports a default sink.
+On machines without audio hardware a null sink keeps programs that wait
+for audio running:
+.Ic pulseaudio -n --daemonize=yes --load=module-null-sink --load=module-native-protocol-unix .
+.Pp
 Without the proton-wine-addons package (Wine Mono and Wine Gecko),
 .Nm
 disables mscoree and mshtml, and programs that need .NET or wine's HTML
