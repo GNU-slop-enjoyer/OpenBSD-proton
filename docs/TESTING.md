@@ -73,6 +73,8 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 6 | 7-Zip 23.01 x64: the `.exe` installer is a 32-bit stub (cannot run); `.msi` installs with msiexec; `7z.exe` a/t/x of a 2-file archive, extracted files byte-identical | obsd-vm | **pass** (MSI route) | tests/apps/README.md |
 | 2026-10-21 | 7 | Notepad++ 8.9.8.1 x64 portable: opens a file; screenshot shows menus, toolbar, editor text, status bar correctly rendered (installer is a 32-bit stub) | obsd-vm | **pass** | tests/apps/README.md |
 | 2026-10-21 | 5 | launcher refuses 32-bit PE files with an explanation (after fixing OpenBSD `od` zero-padded output read as octal) | obsd-vm | **pass** | session transcript |
+| 2026-10-21 | 9/10 | OpenTTD 15.3 win64 + OpenGFX 8.0: title game renders; mouse clicks open World Generation and generate a world; game runs (date advancing). OpenTTD disables its OpenGL acceleration on llvmpipe ("no compatible GPU"), uses its software blitter | obsd-vm | **pass** | `docs/screenshots/openttd-15.3-game.png` |
+| 2026-10-21 | 8/9/10 | SuperTuxKart 1.5 (x86_64 build): OpenGL 4.5 core context on Mesa llvmpipe through wine's opengl32/winex11; menus, tutorial track and a race on "lighthouse" render (rain, lighting); keyboard (Up) accelerates the kart; mouse navigation of menus | obsd-vm | **pass** (software rendering; audio not checked) | `docs/screenshots/supertuxkart-1.5-race.png` |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 
