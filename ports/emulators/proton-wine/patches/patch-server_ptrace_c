@@ -1,7 +1,20 @@
+OpenBSD only lets a process ptrace() its descendants, and the client
+processes are not descendants of wineserver, so write_process_memory() of a
+few bytes (set_process_debug_flag) queues APC_WRITE_MEMORY to the process
+instead; without this DebugActiveProcess failed with access denied.
+
 Index: server/ptrace.c
 --- server/ptrace.c.orig
 +++ server/ptrace.c
-@@ -54,6 +54,7 @@
+@@ -26,6 +26,7 @@
+ #include <stdio.h>
+ #include <signal.h>
+ #include <stdarg.h>
++#include <string.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+ #ifdef HAVE_SYS_PTRACE_H
+@@ -54,6 +55,7 @@
  
  #include "file.h"
  #include "process.h"
@@ -9,7 +22,7 @@ Index: server/ptrace.c
  #include "thread.h"
  
  #ifdef USE_PTRACE
-@@ -248,6 +249,9 @@ void init_process_tracing( struct proces
+@@ -248,6 +250,9 @@ void init_process_tracing( struct proces
  /* terminate the per-process tracing mechanism */
  void finish_process_tracing( struct process *process )
  {
@@ -19,7 +32,7 @@ Index: server/ptrace.c
  }
  
  /* send a Unix signal to a specific thread */
-@@ -258,7 +262,15 @@ int send_thread_signal( struct thread *t
+@@ -258,7 +263,15 @@ int send_thread_signal( struct thread *t
      if (thread->unix_tid != -1)
      {
          ret = tkill( thread->unix_pid, thread->unix_tid, sig );
@@ -34,4 +47,52 @@ Index: server/ptrace.c
 +#endif
      }
      if (ret == -1 && errno == ESRCH) /* thread got killed */
+     {
+@@ -585,14 +598,45 @@ static int write_process_memory_ptrace(
+     return ret;
+ }
+ 
++#ifdef __OpenBSD__
++/* OpenBSD only lets a process ptrace() its descendants (kern.global_ptrace=0),
++ * and the client processes are not descendants of the server, so a small write
++ * is done by the process itself in a system APC.  It happens asynchronously,
++ * when a thread of the process next handles system APCs; a suspended process
++ * (debugger_attach, debugger_detach) handles it before it resumes. */
++static int write_process_memory_apc( struct process *process, client_ptr_t ptr, data_size_t size,
++                                     const char *src, data_size_t *written )
++{
++    union apc_call call;
++
++    memset( &call, 0, sizeof(call) );
++    call.write_memory.type = APC_WRITE_MEMORY;
++    call.write_memory.size = size;
++    call.write_memory.addr = ptr;
++    memcpy( call.write_memory.data, src, size );
++    if (!thread_queue_apc( process, NULL, NULL, &call ))
++    {
++        set_error( STATUS_ACCESS_DENIED );
++        return 0;
++    }
++    if (written) *written = size;
++    return 1;
++}
++#endif
++
+ /* write data to a process memory space */
+ int write_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, const char *src,
+                           data_size_t *written )
+ {
+-    struct thread *thread = get_ptrace_thread( process );
++    struct thread *thread;
+     int ret;
+ 
+-    if (!thread) return 0;
++#ifdef __OpenBSD__
++    if (size <= sizeof(((union apc_call *)0)->write_memory.data))
++        return write_process_memory_apc( process, ptr, size, src, written );
++#endif
++
++    if (!(thread = get_ptrace_thread( process ))) return 0;
+ 
+     if ((unsigned long)ptr != ptr)
      {

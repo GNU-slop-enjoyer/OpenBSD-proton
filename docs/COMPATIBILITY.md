@@ -166,7 +166,7 @@ prebuilt Source Han Sans OTFs and Proton's Ume fonts instead of afdko.
 | IP_MULTICAST_TTL / IP_MULTICAST_LOOP are `u_char` and must be set with length 1 (`ip_setmoptions`: `m_len != 1` → EINVAL) | setting them the Windows way (int) failed with WSAEINVAL — LAN discovery/multicast | **fixed** (p2) on OpenBSD |
 | other options reject lengths ≠ sizeof(int) | only odd-length probes in the test | open (edge case) |
 | no per-socket TCP_KEEPIDLE/TCP_KEEPCNT/TCP_KEEPINTVL (sysctl only) | SIO_KEEPALIVE_VALS/TCP_KEEPALIVE cannot be honoured | platform limitation |
-| connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | open: wineserver would have to recreate the Unix socket after a failed connect |
+| connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | fixed (p3): wineserver `sock_recreate_unix_socket()` replaces the Unix socket before a retried connect; fd caching is deferred until connected |
 
 ## 32-bit installers (found with real applications, session 2)
 
@@ -196,3 +196,12 @@ arbitrary code.
 | `get_mapping_info()` malloc()s; OpenBSD's malloc aborts on re-entry ("malloc(): recursive call") where glibc would rarely deadlock | first query into a stack buffer; allocate only for image mappings |
 | OpenBSD's cross-process copy (APC_COPY_MEMORY, used because OpenBSD cannot ptrace non-children) copied with fault handling that does not work in signal context; an invalid range killed the target ("nested exception on signal stack") | `virtual_uninterrupted_read/write_memory()` (page protections checked first); partial writes report the bytes written, partial reads 0, as on Windows |
 | programs that switch the stack pointer onto memory they allocated themselves (not via RtlCreateUserStack/fibers) fault fatally on OpenBSD, which requires the stack pointer to lie in a MAP_STACK mapping at faults and syscalls | known limitation (fibers and thread stacks are MAP_STACK) |
+
+## Host information and debugging without ptrace (found via the Linux reference run, session 2)
+
+| Issue | Fix |
+|---|---|
+| process memory counters (GetProcessMemoryInfo, NtQueryInformationProcess ProcessVmCounters, NtQuerySystemInformation process list) were all 0: only Linux /proc, macOS and libprocstat had implementations | ntdll `fill_vm_counters()` and wineserver `get_process_vm_counters` read `kinfo_proc` from `sysctl(KERN_PROC_PID)`: working set = `p_vm_rssize`, private usage = data + stack (anonymous mmap is counted in data), virtual size as ps(1) VSZ (`p_vm_map_size` is not filled in for unprivileged callers) |
+| per-CPU and idle times (SystemProcessorPerformanceInformation, GetSystemTimes) were wine's fake counters 1/2/3, so CPU-load calculations were meaningless | `kern.cpustats` per online CPU (`KERN_CPUSTATS`, skips offline/SMT-disabled CPUs) at `kern.clockrate` stathz; kernel time includes idle as on Windows |
+| wineserver writes PEB `BeingDebugged` with ptrace(); OpenBSD only allows ptrace on descendants (`kern.global_ptrace=0`) and clients are not the server's children. DebugActiveProcess failed with access denied (no AeDebug/winedbg attach), and **every process created with DEBUG_PROCESS aborted** at startup (`assert(!status)` after init_process_done) | new system APC `APC_WRITE_MEMORY` (≤ 8 bytes inline): the target writes its own memory; queued while the target is suspended (debugger attach/detach), so it runs before it resumes. init_process_done returns `debugged` and the new process sets its own flag (an APC there would race the client's check). Tested: `tests/pe/sysinfo.c` 24/24 |
+| libgcrypt missing from configure: Proton's bcrypt does ECDH secret agreement with gcrypt (`STATUS_NOT_IMPLEMENTED` otherwise) | port dependency security/libgcrypt + `--with-gcrypt` (p6) |

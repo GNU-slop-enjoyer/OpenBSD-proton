@@ -17,7 +17,7 @@ GH_PROJECT =		wine
 GH_COMMIT =		e60892cc2398b0a83c332a2078c7b85e47bdb42b
 DISTNAME =		proton-wine-11.0.2e
 PKGNAME =		proton-wine-11.0.20261008
-REVISION =		5
+REVISION =		6
 
 CATEGORIES =		emulators
 
@@ -47,7 +47,7 @@ WANTLIB += pthread pulse sane
 WANTLIB += lib/inotify/inotify lib/libpcap/pcap
 
 # loaded with dlopen()
-WANTLIB += SDL2 cups dbus-1 gnutls netapi vulkan xkbregistry
+WANTLIB += SDL2 cups dbus-1 gcrypt gmp gnutls netapi vulkan xkbregistry
 
 MODULES =		lang/clang \
 			lang/python
@@ -63,6 +63,7 @@ RUN_DEPENDS =		multimedia/gstreamer1/libav \
 
 LIB_DEPENDS =		audio/pulseaudio \
 			devel/gettext,-tools \
+			devel/gmp \
 			devel/libinotify \
 			devel/sdl2 \
 			graphics/ffmpeg \
@@ -75,6 +76,7 @@ LIB_DEPENDS =		audio/pulseaudio \
 			net/samba,-main \
 			print/cups,-libs \
 			security/gnutls \
+			security/libgcrypt \
 			security/pcsc-lite \
 			x11/dbus \
 			x11/xkbcommon
@@ -97,6 +99,7 @@ CONFIGURE_ARGS+=	--with-cups \
 			--with-ffmpeg \
 			--with-fontconfig \
 			--with-freetype \
+			--with-gcrypt \
 			--with-gettext \
 			--with-gettextpo \
 			--with-gphoto \

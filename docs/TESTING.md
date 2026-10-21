@@ -82,6 +82,12 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 5 | ntdll directory under C vs UTF-8 locale: 94 → 12 failures (non-ASCII names need a UTF-8 LC_CTYPE); launcher 0.1p5 sets LC_CTYPE=C.UTF-8 when needed; ntdll file: ~100 of 124 failures are reparse-point tests (no xattrs on OpenBSD) | obsd-vm | **pass** (locale) / known limitation (reparse) | session transcript |
 | 2026-10-21 | 5 | ntdll virtual: "malloc(): recursive call" in 2 of 5 runs (malloc in get_mapping_info reached from a system APC in signal context) | obsd-vm | **fail → fixed (p5)**: 10/10 runs pass, 2336 tests, 0 failures | session transcript |
 | 2026-10-21 | 5 | kernel32 virtual: hang (cross-process copy APC faulted in the target's signal handler → "nested exception on signal stack", caller waited forever) | obsd-vm | **fail → fixed (p5)**: copies use protection-checked helpers; partial copies reported like Windows; the unit now ends at test_stack_commit (manual stack switch onto non-MAP_STACK memory: OpenBSD limitation) | session transcript |
+| 2026-10-21 | 5 | **Linux reference**: pristine Proton wine e60892cc built on the Gentoo host (`scripts/linux-ref-build.sh`), same test binaries, 14 suites / 161 units, no display, fresh prefix | gentoo-host | 136 pass / 20 fail / 2 crash / 3 timeout. Units failing identically on Linux (same counts) are Proton/environment behaviour, not OpenBSD bugs: advapi32 crypt/registry, crypt32 chain/protectdata, kernel32 module/path, ntdll om/wow64, oleaut32 typelib, kernel32 debugger (43). OpenBSD-only failures (vs p1): bcrypt, ntdll info, loader (prefix had mscoree disabled), directory/ucrtbase file (C locale), change/virtual (fixed in p4/p5), ws2_32 afd/protocol | `docs/results/winetest-linux-ref.txt` |
+| 2026-10-21 | 5 | bcrypt ECDH secret agreement (27 failures, STATUS_NOT_IMPLEMENTED): configure did not find libgcrypt (not a port dependency, so the ports pkg-config wrapper hid it); Proton's bcrypt does ECDH via gcrypt | obsd-vm | **fail → fixed in p6** (security/libgcrypt + devel/gmp dependencies, `--with-gcrypt`): installed p6 bcrypt 0 failures (was 27) | session transcript |
+| 2026-10-21 | 6 | `tests/pe/sysinfo.c` (new): process memory counters (self via ntdll, other process via wineserver), GetSystemTimes over 1 s of spinning, CreateProcess(DEBUG_ONLY_THIS_PROCESS), DebugActiveProcess attach/break-in/detach with IsDebuggerPresent in the child | obsd-vm | before: memory counters 0, CPU times fake (1/2/3), DebugActiveProcess access denied. After: build tree 24/24, installed proton-wine p6 package **25/25** (5 runs; the detach check was made race-free) | session transcript |
+| 2026-10-21 | 5 | ntdll info with the p6 sources | obsd-vm | 26 → 4 failures (Linux reference: 4) | session transcript |
+| 2026-10-21 | 5 | wine-11.19p2 (OpenBSD port + narrow args + change/socket/reconnect/signal-context fixes, `upstream-submissions/emulators-wine/patches`): ntdll change 9 / kernel32 change 9 failures (were 26/82), ntdll virtual 0, ntdll om 0, kernel32 virtual completes (was a timeout; 32 VirtualProtect/WRITECOPY failures remain), ws2_32 sock completes (was a timeout; 203 failures of 2.67 M) | obsd-vm | **pass for the fixed causes** | `~builder/winetest/out-1119c` |
+| 2026-10-21 | 5 | wine-11.19p2 ntdll info: `assertion "!status" failed ... server_init_process_done` ×9 — every process started under a debugger aborts at startup on stock OpenBSD wine (the server's ptrace write of PEB BeingDebugged fails) | obsd-vm | **fail**; fix ported to the 11.19 bundle (APC_WRITE_MEMORY / init_process_done "debugged"), build pending | `~builder/winetest/out-1119c` |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 
@@ -104,6 +110,11 @@ command and log. "Not tested" means exactly that.
   a window, so it runs under Xvfb with wined3d + llvmpipe.
 - `tests/pe/d3d12probe.cpp`: D3D12CreateDevice at feature level 11_0;
   prints the HRESULT and the d3d12/d3d12core/dxgi DLLs in use.
+- `tests/pe/sysinfo.c` (`make -C tests/pe sysinfo`, mingw-w64 C): process
+  memory counters (own and another process), GetSystemTimes over 1 s of
+  busy work, a debugged child (DEBUG_ONLY_THIS_PROCESS) and
+  DebugActiveProcess attach/break-in/detach; the children report
+  IsDebuggerPresent through their exit code. TAP, exit code = failures.
 - Wine conformance tests: `scripts/vm/winetest-build.sh` builds the
   `*_test.exe` files from a port's build tree (copy reconfigured without
   `--disable-tests`); `scripts/vm/winetest-run.sh` runs each test unit

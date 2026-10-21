@@ -50,5 +50,19 @@ Found in proton-wine, ported to wine-11.19 (same code paths):
 directory change notifications (wineserver had no path for watched
 directories), boolean/multicast socket options, reconnect after a failed
 connect, malloc in signal context (get_mapping_info), and the
-cross-process copy APC's fault handling. Status: build and tests of the
-combined set with emulators/wine in progress (see docs/TESTING.md).
+cross-process copy APC's fault handling, and (second batch) process
+memory counters and CPU times from sysctl(2), and debugging without
+ptrace: a new APC_WRITE_MEMORY and an init_process_done "debugged" reply
+field replace the server's ptrace() write of PEB BeingDebugged.
+
+Status:
+- First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
+  change notifications 82/26 → 9/9 failures, ntdll virtual and om pass,
+  kernel32 virtual and ws2_32 sock complete (both timed out before).
+- The same run showed the debugger bug on stock 11.19: every process
+  created with DEBUG_PROCESS aborts (`assertion "!status" failed ...
+  server_init_process_done`, 9× in ntdll_test info). Second batch is in
+  openbsd-fixes.diff and patches/ (57 files; the generated
+  server_protocol.h, request_handlers.h and request_trace.h are patched
+  directly, as the port does not run make_requests); build pending.
+  The same changes pass tests/pe/sysinfo.c 24/24 in proton-wine.

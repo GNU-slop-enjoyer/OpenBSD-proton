@@ -1,17 +1,23 @@
+OpenBSD-only protocol additions (the server cannot ptrace() clients):
+APC_COPY_MEMORY for NtRead/WriteVirtualMemory, APC_WRITE_MEMORY for small
+server-side writes (PEB BeingDebugged), init_process_done reply "debugged".
+tools/make_requests regenerates the protocol headers in post-patch.
+
 Index: server/protocol.def
 --- server/protocol.def.orig
 +++ server/protocol.def
-@@ -502,7 +502,8 @@ enum apc_type
+@@ -502,7 +502,9 @@ enum apc_type
      APC_MAP_VIEW_EX,
      APC_UNMAP_VIEW,
      APC_CREATE_THREAD,
 -    APC_DUP_HANDLE
 +    APC_DUP_HANDLE,
-+    APC_COPY_MEMORY /* OpenBSD only, don't upstream */
++    APC_COPY_MEMORY, /* OpenBSD only, don't upstream */
++    APC_WRITE_MEMORY /* OpenBSD only, don't upstream */
  };
  
  struct user_apc
-@@ -640,6 +641,14 @@ union apc_call
+@@ -640,6 +642,21 @@ union apc_call
          unsigned int     attributes;   /* object attributes */
          unsigned int     options;      /* duplicate options */
      } dup_handle;
@@ -23,10 +29,17 @@ Index: server/protocol.def
 +        mem_size_t       size;         /* allocation size */
 +        int              write;        /* TRUE - copy from handle to addr, FALSE - from addr to handle*/
 +    } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;         /* APC_WRITE_MEMORY */
++        data_size_t      size;         /* number of bytes in data */
++        client_ptr_t     addr;         /* address to write to */
++        unsigned char    data[8];      /* bytes to write */
++    } write_memory; /* OpenBSD only, don't upstream: the server cannot ptrace() */
  };
  
  union apc_result
-@@ -752,6 +761,12 @@ union apc_result
+@@ -752,6 +769,17 @@ union apc_result
          enum apc_type    type;      /* APC_BREAK_PROCESS */
          unsigned int     status;    /* status returned by call */
      } break_process;
@@ -36,6 +49,19 @@ Index: server/protocol.def
 +        unsigned int     status;    /* status returned by call */
 +        mem_size_t       size;      /* resulting size */
 +    } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;      /* APC_WRITE_MEMORY */
++        unsigned int     status;    /* status returned by call */
++    } write_memory; /* OpenBSD only, don't upstream */
  };
  
  enum irp_type
+@@ -1158,6 +1186,7 @@ struct cpu_topology_override
+     client_ptr_t ldt_copy;     /* address of LDT copy (in process address space) */
+ @REPLY
+     int          suspend;      /* is process suspended? */
++    int          debugged;     /* is process being debugged? (OpenBSD only, PEB flag set by the client) */
+ @END
+ 
+ 

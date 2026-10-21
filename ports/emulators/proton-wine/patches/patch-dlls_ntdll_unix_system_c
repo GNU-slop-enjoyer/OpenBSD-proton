@@ -8,20 +8,70 @@ create_logical_proc_info() takes the CPU count from peb->NumberOfProcessors
 Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
 arguments in this file; see patch-include_wine_unixlib_h.
 
+SystemProcessorPerformanceInformation and SystemPerformanceInformation
+idle time: per-CPU kern.cpustats (online CPUs only) at kern.clockrate stathz
+instead of wine's fake counters.
+
 Index: dlls/ntdll/unix/system.c
 --- dlls/ntdll/unix/system.c.orig
 +++ dlls/ntdll/unix/system.c
-@@ -58,6 +58,9 @@
+@@ -58,6 +58,10 @@
  #ifdef HAVE_SYS_AUXV_H
  # include <sys/auxv.h>
  #endif
 +#ifdef __OpenBSD__
++# include <sys/sched.h>
 +# include <uvm/uvmexp.h>
 +#endif
  #ifdef __APPLE__
  # include <CoreFoundation/CoreFoundation.h>
  # include <IOKit/IOKitLib.h>
-@@ -765,8 +768,15 @@ void init_shared_data_cpuinfo( KUSER_SHA
+@@ -85,6 +89,44 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
+ 
++#ifdef __OpenBSD__
++/* Per-CPU time of the online CPUs, in 100ns units: user (user + nice),
++ * kernel (sys + spin + intr, plus idle as on Windows) and idle.  The
++ * counters come from kern.cpustats (sysctl(2) KERN_CPUSTATS) and tick at
++ * kern.clockrate's stathz.  Returns the number of CPUs filled in. */
++static unsigned int get_cpu_times( SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *times, unsigned int max )
++{
++    static int clockrate_name[] = { CTL_KERN, KERN_CLOCKRATE };
++    static int ncpu_name[] = { CTL_HW, HW_NCPU };
++    struct clockinfo clockrate;
++    struct cpustats stats;
++    unsigned int count = 0;
++    int i, ncpu;
++    size_t len;
++
++    len = sizeof(clockrate);
++    if (sysctl( clockrate_name, 2, &clockrate, &len, NULL, 0 ) || clockrate.stathz <= 0) return 0;
++    len = sizeof(ncpu);
++    if (sysctl( ncpu_name, 2, &ncpu, &len, NULL, 0 )) return 0;
++
++    for (i = 0; i < ncpu && count < max; i++)
++    {
++        int stats_name[] = { CTL_KERN, KERN_CPUSTATS, i };
++        const uint64_t *t = stats.cs_time;
++
++        len = sizeof(stats);
++        if (sysctl( stats_name, 3, &stats, &len, NULL, 0 )) continue;
++        if (!(stats.cs_flags & CPUSTATS_ONLINE)) continue;
++        times[count].IdleTime.QuadPart = t[CP_IDLE] * 10000000 / clockrate.stathz;
++        times[count].KernelTime.QuadPart = (t[CP_SYS] + t[CP_SPIN] + t[CP_INTR]) * 10000000 / clockrate.stathz +
++                                           times[count].IdleTime.QuadPart;
++        times[count].UserTime.QuadPart = (t[CP_USER] + t[CP_NICE]) * 10000000 / clockrate.stathz;
++        count++;
++    }
++    return count;
++}
++#endif
++
+ #pragma pack(push,1)
+ 
+ struct smbios_prologue
+@@ -765,8 +807,15 @@ void init_shared_data_cpuinfo( KUSER_SHA
  
  #endif /* End architecture specific feature detection for CPUs */
  
@@ -37,7 +87,7 @@ Index: dlls/ntdll/unix/system.c
  
  static ULONG popcount( ULONG val )
  {
-@@ -1814,6 +1824,81 @@ end:
+@@ -1814,6 +1863,81 @@ end:
      return nt_status;
  }
  
@@ -119,7 +169,26 @@ Index: dlls/ntdll/unix/system.c
  #else
  
  static NTSTATUS create_logical_proc_info(void)
-@@ -2834,8 +2919,27 @@ static void get_performance_info( SYSTEM
+@@ -2788,6 +2912,18 @@ static void get_performance_info( SYSTEM
+             info->IdleTime.QuadPart = (ULONGLONG)load_info.cpu_ticks[CPU_STATE_IDLE] * 100000;
+         mach_port_deallocate(mach_task_self(), host);
+     }
++#elif defined(__OpenBSD__)
++    {
++        SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *times;
++        unsigned int i, count;
++
++        if ((times = calloc( peb->NumberOfProcessors, sizeof(*times) )))
++        {
++            count = get_cpu_times( times, peb->NumberOfProcessors );
++            for (i = 0; i < count; i++) info->IdleTime.QuadPart += times[i].IdleTime.QuadPart;
++            free( times );
++        }
++    }
+ #else
+     {
+         static ULONGLONG idle;
+@@ -2834,8 +2970,27 @@ static void get_performance_info( SYSTEM
              }
          }
      }
@@ -148,7 +217,16 @@ Index: dlls/ntdll/unix/system.c
      {
  #ifdef __APPLE__
          unsigned int val;
-@@ -5009,6 +5113,8 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTAT
+@@ -3736,6 +3891,8 @@ NTSTATUS WINAPI NtQuerySystemInformation
+                 free(ptimes);
+             }
+         }
++#elif defined(__OpenBSD__)
++        cpus = get_cpu_times( sppi, out_cpus );
+ #endif
+         if (cpus == 0)
+         {
+@@ -5009,6 +5166,8 @@ NTSTATUS WINAPI NtRaiseHardError( NTSTAT
  NTSTATUS WINAPI NtInitiatePowerAction( POWER_ACTION action, SYSTEM_POWER_STATE state,
                                         ULONG flags, BOOLEAN async )
  {
