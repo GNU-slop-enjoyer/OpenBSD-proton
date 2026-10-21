@@ -1,0 +1,171 @@
+Windows always resolves its own host name (and "", which ws2_32 maps to
+it).  OpenBSD has no nss-myhostname, so getaddrinfo() fails for the host
+name unless it is in /etc/hosts.  On EAI_NONAME for the local host name,
+answer with the addresses of the up, non-loopback interfaces (no IPv6
+link-local), resolved numerically with the caller's hints and service, or
+with localhost if there are none.  ws2_32 protocol test: 19 -> 1 failures.
+
+Index: dlls/ws2_32/unixlib.c
+--- dlls/ws2_32/unixlib.c.orig
++++ dlls/ws2_32/unixlib.c
+@@ -694,6 +694,69 @@ static BOOL addrinfo_in_list( const stru
+     return FALSE;
+ }
+ 
++#define MAX_LOCAL_ADDRS 32
++
++#if defined(HAVE_GETADDRINFO) && defined(HAVE_GETIFADDRS)
++
++/* whether node is this machine's host name, with or without the domain */
++static BOOL is_local_host_name( const char *node )
++{
++    char name[256];
++    size_t len;
++
++    if (!node || gethostname( name, sizeof(name) )) return FALSE;
++    name[sizeof(name) - 1] = 0;
++    if (!strcasecmp( node, name )) return TRUE;
++    len = strcspn( name, "." );
++    return strlen( node ) == len && !strncasecmp( node, name, len );
++}
++
++/* Windows always resolves its own host name (and "", which ws2_32 turns into
++ * it).  Hosts without nss-myhostname (OpenBSD and other BSDs) usually cannot,
++ * unless the name is in /etc/hosts.  Answer like nss-myhostname: with the
++ * addresses of the configured interfaces that are up (no loopback or IPv6
++ * link-local), or with localhost if there are none.  Each address is resolved
++ * numerically with the caller's hints and service; returns the number of
++ * result lists stored in lists. */
++static unsigned int getaddrinfo_local_host( const char *service, const struct addrinfo *hints,
++                                            struct addrinfo **lists )
++{
++    struct addrinfo numeric_hints = {0};
++    struct ifaddrs *ifaddrs, *ifa;
++    char addr[INET6_ADDRSTRLEN];
++    unsigned int count = 0;
++
++    if (hints) numeric_hints = *hints;
++    numeric_hints.ai_flags = (numeric_hints.ai_flags | AI_NUMERICHOST) & ~AI_CANONNAME;
++
++    if (!getifaddrs( &ifaddrs ))
++    {
++        for (ifa = ifaddrs; ifa && count < MAX_LOCAL_ADDRS; ifa = ifa->ifa_next)
++        {
++            int family = ifa->ifa_addr ? ifa->ifa_addr->sa_family : AF_UNSPEC;
++            const void *in;
++
++            if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
++            if (family == AF_INET)
++                in = &((const struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
++            else if (family == AF_INET6)
++            {
++                in = &((const struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
++                if (IN6_IS_ADDR_LINKLOCAL( (const struct in6_addr *)in )) continue;
++            }
++            else continue;
++            if (numeric_hints.ai_family != AF_UNSPEC && numeric_hints.ai_family != family) continue;
++            if (!inet_ntop( family, in, addr, sizeof(addr) )) continue;
++            if (!getaddrinfo( addr, service, &numeric_hints, &lists[count] )) count++;
++        }
++        freeifaddrs( ifaddrs );
++    }
++    if (!count && !getaddrinfo( "localhost", service, hints, &lists[0] )) count = 1;
++    return count;
++}
++
++#endif
++
+ static NTSTATUS unix_getaddrinfo( void *args )
+ {
+ #ifdef HAVE_GETADDRINFO
+@@ -701,9 +764,10 @@ static NTSTATUS unix_getaddrinfo( void *
+     const char *service = params->service;
+     const struct WS_addrinfo *hints = params->hints;
+     struct addrinfo unix_hints = {0};
+-    struct addrinfo *unix_info, *src;
++    struct addrinfo *lists[MAX_LOCAL_ADDRS], *src;
+     struct WS_addrinfo *dst, *prev = NULL;
+-    unsigned int needed_size = 0;
++    unsigned int needed_size = 0, list_count = 1, i;
++    const char *canonname = NULL;
+     int ret;
+ 
+     /* servname tweak required by OSX and BSD kernels */
+@@ -751,11 +815,28 @@ static NTSTATUS unix_getaddrinfo( void *
+         }
+     }
+ 
+-    ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
++    ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &lists[0] );
++#ifdef HAVE_GETIFADDRS
++    if ((ret == EAI_NONAME
++#ifdef EAI_NODATA
++         || ret == EAI_NODATA
++#endif
++        ) && is_local_host_name( params->node ))
++    {
++        TRACE( "resolving local host name %s from the interface addresses\n", debugstr_a(params->node) );
++        if ((list_count = getaddrinfo_local_host( service, hints ? &unix_hints : NULL, lists )))
++        {
++            ret = 0;
++            if (hints && (unix_hints.ai_flags & AI_CANONNAME)) canonname = params->node;
++        }
++    }
++#endif
+     if (ret)
+         return addrinfo_err_from_unix( ret );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    if (canonname) needed_size += strlen( canonname ) + 1;
++    for (i = 0; i < list_count; i++)
++    for (src = lists[i]; src != NULL; src = src->ai_next)
+     {
+         needed_size += sizeof(struct WS_addrinfo);
+         if (src->ai_canonname)
+@@ -766,7 +847,7 @@ static NTSTATUS unix_getaddrinfo( void *
+     if (*params->size < needed_size)
+     {
+         *params->size = needed_size;
+-        freeaddrinfo( unix_info );
++        for (i = 0; i < list_count; i++) freeaddrinfo( lists[i] );
+         return ERROR_INSUFFICIENT_BUFFER;
+     }
+ 
+@@ -774,9 +855,11 @@ static NTSTATUS unix_getaddrinfo( void *
+ 
+     memset( params->info, 0, needed_size );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    for (i = 0; i < list_count; i++)
++    for (src = lists[i]; src != NULL; src = src->ai_next)
+     {
+         void *next = dst + 1;
++        const char *src_canonname = (canonname && dst == params->info) ? canonname : src->ai_canonname;
+ 
+         dst->ai_flags = addrinfo_flags_from_unix( src->ai_flags );
+         dst->ai_family = family_from_unix( src->ai_family );
+@@ -790,12 +873,12 @@ static NTSTATUS unix_getaddrinfo( void *
+             dst->ai_socktype = socktype_from_unix( src->ai_socktype );
+             dst->ai_protocol = protocol_from_unix( src->ai_protocol );
+         }
+-        if (src->ai_canonname)
++        if (src_canonname)
+         {
+-            size_t len = strlen( src->ai_canonname ) + 1;
++            size_t len = strlen( src_canonname ) + 1;
+ 
+             dst->ai_canonname = next;
+-            memcpy( dst->ai_canonname, src->ai_canonname, len );
++            memcpy( dst->ai_canonname, src_canonname, len );
+             next = dst->ai_canonname + len;
+         }
+ 
+@@ -814,7 +897,7 @@ static NTSTATUS unix_getaddrinfo( void *
+         }
+     }
+ 
+-    freeaddrinfo( unix_info );
++    for (i = 0; i < list_count; i++) freeaddrinfo( lists[i] );
+     return 0;
+ #else
+     FIXME( "getaddrinfo() not found during build time\n" );

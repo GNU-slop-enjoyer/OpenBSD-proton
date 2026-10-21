@@ -54,6 +54,9 @@ cross-process copy APC's fault handling, and (second batch) process
 memory counters and CPU times from sysctl(2), and debugging without
 ptrace: a new APC_WRITE_MEMORY and an init_process_done "debugged" reply
 field replace the server's ptrace() write of PEB BeingDebugged.
+ws2_32 resolves the local host name (and "") from the interface addresses
+when the system cannot (no nss-myhostname on OpenBSD; ws2_32 protocol test
+19 -> 1 failures in proton-wine).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
@@ -62,7 +65,7 @@ Status:
 - The same run showed the debugger bug on stock 11.19: every process
   created with DEBUG_PROCESS aborts (`assertion "!status" failed ...
   server_init_process_done`, 9× in ntdll_test info). Second batch is in
-  openbsd-fixes.diff and patches/ (57 files; the generated
+  openbsd-fixes.diff and patches/ (58 files; the generated
   server_protocol.h, request_handlers.h and request_trace.h are patched
   directly, as the port does not run make_requests); build pending.
   The same changes pass tests/pe/sysinfo.c 24/24 in proton-wine.
