@@ -76,6 +76,23 @@ blockers, next action.
   `~builder/pfx-launch`.
 - Xvfb on :1 must be restarted after a reboot.
 
+### Late session 2 (after the handoff above)
+- proton-wine p2 (socket option fixes), fonts/proton-fonts, launcher
+  0.1p2 (fonts linked before first boot): committed up to `d7b5e9f`.
+- Proton-only winetest failures now explained: kernel32 path, ntdll om
+  (Proton's GlobalRoot prefix stripping in ntdll file.c), advapi32 crypt
+  / crypt32 protectdata (SteamGameId hacks); comctl32/user32 message
+  sequences unverified.
+- **In progress when the session ended:** emulators/wine-11.19p1 build in
+  the VM with `upstream-submissions/emulators-wine/patches` (log
+  `~builder/build-logs/emulators_wine-narrow.log`; original patches kept in
+  `/usr/ports/emulators/wine/patches.orig`, REVISION bumped locally only).
+  Next: install it, run `kernel32_test drive`/winetest, update the
+  submission README.
+- Open: wineserver `IOCTL_AFD_WINE_CONNECT` (server/sock.c) should
+  recreate the Unix socket when OpenBSD refuses connect() after a failed
+  attempt (EINVAL); afdko port for Proton's CJK fonts.
+
 ### Next concrete actions
 1. Finish the p1 winetest comparison; explain or fix the remaining
    proton-only units (ntdll om, user32 scroll, comctl32 button/treeview,
