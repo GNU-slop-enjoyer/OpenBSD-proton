@@ -21,11 +21,20 @@ the size to record the base used for Unix calls.
 Index: dlls/ntdll/unix/server.c
 --- dlls/ntdll/unix/server.c.orig
 +++ dlls/ntdll/unix/server.c
-@@ -705,6 +705,57 @@ static void invoke_system_apc( const uni
+@@ -705,6 +705,66 @@ static void invoke_system_apc( const uni
          if (!self) NtClose( wine_server_ptr_handle(call->dup_handle.dst_process) );
          break;
      }
 +#ifdef __OpenBSD__
++    case APC_WRITE_MEMORY:
++        result->type = call->type;
++        addr = wine_server_get_ptr( call->write_memory.addr );
++        size = call->write_memory.size;
++        if ((ULONG_PTR)addr == call->write_memory.addr && size <= sizeof(call->write_memory.data))
++            result->write_memory.status = virtual_uninterrupted_write_memory( addr, call->write_memory.data, size );
++        else
++            result->write_memory.status = STATUS_INVALID_PARAMETER;
++        break;
 +    case APC_COPY_MEMORY:
 +    {
 +        HANDLE section = wine_server_ptr_handle( call->copy_memory.handle );
@@ -79,7 +88,7 @@ Index: dlls/ntdll/unix/server.c
      default:
          server_protocol_error( "get_apc_request: bad type %d\n", call->type );
          break;
-@@ -838,6 +889,8 @@ unsigned int server_wait_for_object( HAN
+@@ -838,6 +898,8 @@ unsigned int server_wait_for_object( HAN
   */
  NTSTATUS WINAPI NtContinue( CONTEXT *context, BOOLEAN alertable )
  {
@@ -88,7 +97,7 @@ Index: dlls/ntdll/unix/server.c
      return NtContinueEx( context, ULongToPtr(alertable) );
  }
  
-@@ -1546,6 +1599,8 @@ static int get_unix_tid(void)
+@@ -1546,6 +1608,8 @@ static int get_unix_tid(void)
      ret = lwpid;
  #elif defined(__DragonFly__)
      ret = lwp_gettid();
@@ -97,7 +106,7 @@ Index: dlls/ntdll/unix/server.c
  #endif
      return ret;
  }
-@@ -1641,9 +1696,18 @@ void server_init_process( struct thread_
+@@ -1641,9 +1705,18 @@ void server_init_process( struct thread_
      sigaddset( &server_block_set, SIGHUP );
      sigaddset( &server_block_set, SIGQUIT );
      sigaddset( &server_block_set, SIGUSR1 );
@@ -117,7 +126,7 @@ Index: dlls/ntdll/unix/server.c
  
      /* receive the first thread request fd on the main socket */
      data->request_fd = wine_server_receive_fd( &version );
-@@ -1680,6 +1744,9 @@ void server_init_process( struct thread_
+@@ -1680,6 +1753,9 @@ void server_init_process( struct thread_
      {
          req->unix_pid    = getpid();
          req->unix_tid    = get_unix_tid();
@@ -127,7 +136,7 @@ Index: dlls/ntdll/unix/server.c
          req->reply_fd    = reply_pipe;
          req->wait_fd     = data->wait_fd[1];
          req->debug_level = (TRACE_ON(server) != 0);
-@@ -1706,6 +1773,18 @@ void server_init_process( struct thread_
+@@ -1706,6 +1782,18 @@ void server_init_process( struct thread_
  
      if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
  
@@ -146,7 +155,7 @@ Index: dlls/ntdll/unix/server.c
      if (!supported_machines_count)
          fatal_error( "'%s' is a 64-bit installation, it cannot be used with a 32-bit wineserver.\n",
                       config_dir );
-@@ -1757,6 +1836,16 @@ void server_init_process_done(void)
+@@ -1757,6 +1845,16 @@ void server_init_process_done(void)
      signal_init_process( data->teb );
      init_teb_data( data );
  
@@ -163,7 +172,17 @@ Index: dlls/ntdll/unix/server.c
      /* Signal the parent process to continue */
      SERVER_START_REQ( init_process_done )
      {
-@@ -1781,14 +1870,26 @@ void server_init_thread( struct thread_d
+@@ -1764,6 +1862,9 @@ void server_init_process_done(void)
+         req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
+         status = wine_server_call( req );
+         data->suspend = reply->suspend;
++#ifdef __OpenBSD__
++        if (reply->debugged) peb->BeingDebugged = TRUE;
++#endif
+     }
+     SERVER_END_REQ;
+ 
+@@ -1781,14 +1882,26 @@ void server_init_thread( struct thread_d
  {
      int reply_pipe;
      TEB64 *teb64 = get_teb64( data->teb );

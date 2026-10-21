@@ -1,17 +1,18 @@
 Index: server/protocol.def
 --- server/protocol.def.orig
 +++ server/protocol.def
-@@ -514,7 +514,8 @@ enum apc_type
+@@ -514,7 +514,9 @@ enum apc_type
      APC_MAP_VIEW_EX,
      APC_UNMAP_VIEW,
      APC_CREATE_THREAD,
 -    APC_DUP_HANDLE
 +    APC_DUP_HANDLE,
-+    APC_COPY_MEMORY /* OpenBSD only, don't upstream */
++    APC_COPY_MEMORY, /* OpenBSD only, don't upstream */
++    APC_WRITE_MEMORY /* OpenBSD only, don't upstream */
  };
  
  struct user_apc
-@@ -652,6 +653,14 @@ union apc_call
+@@ -652,6 +654,21 @@ union apc_call
          unsigned int     attributes;   /* object attributes */
          unsigned int     options;      /* duplicate options */
      } dup_handle;
@@ -23,10 +24,17 @@ Index: server/protocol.def
 +        mem_size_t       size;         /* allocation size */
 +        int              write;        /* TRUE - copy from handle to addr, FALSE - from addr to handle*/
 +    } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;         /* APC_WRITE_MEMORY */
++        data_size_t      size;         /* number of bytes in data */
++        client_ptr_t     addr;         /* address to write to */
++        unsigned char    data[8];      /* bytes to write */
++    } write_memory; /* OpenBSD only, don't upstream: the server cannot ptrace() */
  };
  
  union apc_result
-@@ -764,6 +773,12 @@ union apc_result
+@@ -764,6 +781,17 @@ union apc_result
          enum apc_type    type;      /* APC_BREAK_PROCESS */
          unsigned int     status;    /* status returned by call */
      } break_process;
@@ -36,6 +44,19 @@ Index: server/protocol.def
 +        unsigned int     status;    /* status returned by call */
 +        mem_size_t       size;      /* resulting size */
 +    } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;      /* APC_WRITE_MEMORY */
++        unsigned int     status;    /* status returned by call */
++    } write_memory; /* OpenBSD only, don't upstream */
  };
  
  enum irp_type
+@@ -1187,6 +1215,7 @@ typedef volatile struct
+     client_ptr_t peb;          /* PEB of new process (in process address space) */
+ @REPLY
+     int          suspend;      /* is process suspended? */
++    int          debugged;     /* is process being debugged? (OpenBSD only, PEB flag set by the client) */
+ @END
+ 
+ 

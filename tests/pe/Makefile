@@ -5,6 +5,9 @@
 #   make d3d        build d3d11probe.exe, d3d12probe.exe, d3d11render.exe (needs a
 #                   mingw-w64 C++ toolchain, e.g. devel/mingw-w64; set
 #                   MINGW_CXX)
+#   make sysinfo  build sysinfo.exe (process memory/CPU information and
+#                 debugger attach; needs a mingw-w64 C toolchain, MINGW_CC)
+#   make audio    build audio.exe (WASAPI playback timing; mingw-w64 C)
 #   make clean
 
 CLANG ?=	clang
@@ -12,6 +15,7 @@ DLLTOOL ?=	llvm-dlltool
 LLD_LINK ?=	lld-link
 OUT ?=		../../build/tests/pe
 MINGW_CXX ?=	x86_64-w64-mingw32-clang++
+MINGW_CC ?=	x86_64-w64-mingw32-clang
 
 CFLAGS =	--target=x86_64-pc-windows-msvc -O2 -ffreestanding \
 		-fno-stack-protector -fno-builtin -mno-stack-arg-probe \
@@ -67,7 +71,19 @@ ${OUT}/d3d11render.exe: d3d11render.cpp
 	${MINGW_CXX} -std=c++17 -O2 -Wall -Wextra -Werror -static \
 		-o $@ d3d11render.cpp -ld3d11
 
+sysinfo: ${OUT}/sysinfo.exe
+
+${OUT}/sysinfo.exe: sysinfo.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ sysinfo.c -lpsapi
+
+audio: ${OUT}/audio.exe
+
+${OUT}/audio.exe: audio.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ audio.c -lole32 -lm
+
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib
 
-.PHONY: all clean d3d
+.PHONY: all audio clean d3d sysinfo

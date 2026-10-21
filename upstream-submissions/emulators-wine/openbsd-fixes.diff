@@ -1,7 +1,61 @@
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/ntdll/unix/process.c
+--- a/dlls/ntdll/unix/process.c	2026-10-21 10:30:15.232094899 +0200
++++ b/dlls/ntdll/unix/process.c	2026-10-21 18:02:20.313672502 +0200
+@@ -1066,6 +1066,34 @@
+     }
+ }
+ 
++#elif defined(__OpenBSD__)
++
++void fill_vm_counters( VM_COUNTERS_EX *pvmi, int unix_pid )
++{
++    int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, unix_pid == -1 ? getpid() : unix_pid,
++                  sizeof(struct kinfo_proc), 1 };
++    struct kinfo_proc kp;
++    size_t len = sizeof(kp);
++    ULONG64 page = getpagesize();
++
++    if (sysctl( mib, ARRAY_SIZE(mib), &kp, &len, NULL, 0 ) || len != sizeof(kp)) return;
++
++    /* as ps(1) VSZ; p_vm_map_size is not filled in */
++    pvmi->VirtualSize = ((ULONG64)kp.p_vm_tsize + kp.p_vm_dsize + kp.p_vm_ssize) * page;
++    pvmi->PeakVirtualSize = pvmi->VirtualSize;
++    pvmi->WorkingSetSize = kp.p_vm_rssize * page;
++    /* ru_maxrss is in kilobytes */
++    pvmi->PeakWorkingSetSize = max( kp.p_uru_maxrss * 1024, pvmi->WorkingSetSize );
++    /* private memory: data (anonymous mappings included) and stack */
++    pvmi->PagefileUsage = ((ULONG64)kp.p_vm_dsize + kp.p_vm_ssize) * page;
++    pvmi->PeakPagefileUsage = pvmi->PagefileUsage;
++}
++
++int get_unix_debugger_pid(void)
++{
++    return 0;
++}
++
+ #else
+ 
+ void fill_vm_counters( VM_COUNTERS_EX *pvmi, int unix_pid )
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/ntdll/unix/server.c
 --- a/dlls/ntdll/unix/server.c	2026-10-21 10:30:15.236738912 +0200
-+++ b/dlls/ntdll/unix/server.c	2026-10-21 15:25:01.583185697 +0200
-@@ -724,12 +724,29 @@
++++ b/dlls/ntdll/unix/server.c	2026-10-21 18:02:20.316833314 +0200
+@@ -706,6 +706,15 @@
+         break;
+     }
+ #ifdef __OpenBSD__
++    case APC_WRITE_MEMORY:
++        result->type = call->type;
++        addr = wine_server_get_ptr( call->write_memory.addr );
++        size = call->write_memory.size;
++        if ((ULONG_PTR)addr == call->write_memory.addr && size <= sizeof(call->write_memory.data))
++            result->write_memory.status = virtual_uninterrupted_write_memory( addr, call->write_memory.data, size );
++        else
++            result->write_memory.status = STATUS_INVALID_PARAMETER;
++        break;
+     case APC_COPY_MEMORY:
+     {
+         HANDLE section = wine_server_ptr_handle( call->copy_memory.handle );
+@@ -724,12 +733,29 @@
                                                               &view_size, ViewShare, 0, PAGE_READWRITE );
              if (!result->copy_memory.status)
              {
@@ -37,6 +91,16 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
                  NtUnmapViewOfSection( NtCurrentProcess(), view );
              }
          }
+@@ -1834,6 +1860,9 @@
+         req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
+         status = wine_server_call( req );
+         data->suspend = reply->suspend;
++#ifdef __OpenBSD__
++        if (reply->debugged) peb->BeingDebugged = TRUE;
++#endif
+     }
+     SERVER_END_REQ;
+ 
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/ntdll/unix/socket.c
 --- a/dlls/ntdll/unix/socket.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/dlls/ntdll/unix/socket.c	2026-10-21 15:25:01.476518939 +0200
@@ -206,6 +270,90 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/n
  
          case IOCTL_AFD_WINE_SET_TCP_NODELAY:
              return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-chg/dlls/ntdll/unix/system.c
+--- a/dlls/ntdll/unix/system.c	2026-10-21 10:30:15.253397925 +0200
++++ b/dlls/ntdll/unix/system.c	2026-10-21 18:02:20.315671572 +0200
+@@ -62,6 +62,7 @@
+ # include <sys/auxv.h>
+ #endif
+ #ifdef __OpenBSD__
++# include <sys/sched.h>
+ # include <uvm/uvmexp.h>
+ #endif
+ #ifdef __APPLE__
+@@ -142,6 +143,44 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
+ 
++#ifdef __OpenBSD__
++/* Per-CPU time of the online CPUs, in 100ns units: user (user + nice),
++ * kernel (sys + spin + intr, plus idle as on Windows) and idle.  The
++ * counters come from kern.cpustats (sysctl(2) KERN_CPUSTATS) and tick at
++ * kern.clockrate's stathz.  Returns the number of CPUs filled in. */
++static unsigned int get_cpu_times( SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *times, unsigned int max )
++{
++    static int clockrate_name[] = { CTL_KERN, KERN_CLOCKRATE };
++    static int ncpu_name[] = { CTL_HW, HW_NCPU };
++    struct clockinfo clockrate;
++    struct cpustats stats;
++    unsigned int count = 0;
++    int i, ncpu;
++    size_t len;
++
++    len = sizeof(clockrate);
++    if (sysctl( clockrate_name, 2, &clockrate, &len, NULL, 0 ) || clockrate.stathz <= 0) return 0;
++    len = sizeof(ncpu);
++    if (sysctl( ncpu_name, 2, &ncpu, &len, NULL, 0 )) return 0;
++
++    for (i = 0; i < ncpu && count < max; i++)
++    {
++        int stats_name[] = { CTL_KERN, KERN_CPUSTATS, i };
++        const uint64_t *t = stats.cs_time;
++
++        len = sizeof(stats);
++        if (sysctl( stats_name, 3, &stats, &len, NULL, 0 )) continue;
++        if (!(stats.cs_flags & CPUSTATS_ONLINE)) continue;
++        times[count].IdleTime.QuadPart = t[CP_IDLE] * 10000000 / clockrate.stathz;
++        times[count].KernelTime.QuadPart = (t[CP_SYS] + t[CP_SPIN] + t[CP_INTR]) * 10000000 / clockrate.stathz +
++                                           times[count].IdleTime.QuadPart;
++        times[count].UserTime.QuadPart = (t[CP_USER] + t[CP_NICE]) * 10000000 / clockrate.stathz;
++        count++;
++    }
++    return count;
++}
++#endif
++
+ #pragma pack(push,1)
+ 
+ struct smbios_prologue
+@@ -2673,6 +2712,18 @@
+             info->IdleTime.QuadPart = (ULONGLONG)load_info.cpu_ticks[CPU_STATE_IDLE] * 100000;
+         mach_port_deallocate(mach_task_self(), host);
+     }
++#elif defined(__OpenBSD__)
++    {
++        SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *times;
++        unsigned int i, count;
++
++        if ((times = calloc( peb->NumberOfProcessors, sizeof(*times) )))
++        {
++            count = get_cpu_times( times, peb->NumberOfProcessors );
++            for (i = 0; i < count; i++) info->IdleTime.QuadPart += times[i].IdleTime.QuadPart;
++            free( times );
++        }
++    }
+ #else
+     {
+         static ULONGLONG idle;
+@@ -3631,6 +3682,8 @@
+                 free(ptimes);
+             }
+         }
++#elif defined(__OpenBSD__)
++        cpus = get_cpu_times( sppi, out_cpus );
+ #endif
+         if (cpus == 0)
+         {
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/ntdll/unix/virtual.c
 --- a/dlls/ntdll/unix/virtual.c	2026-10-21 10:30:15.267697983 +0200
 +++ b/dlls/ntdll/unix/virtual.c	2026-10-21 15:25:01.391488651 +0200
@@ -270,6 +418,226 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/
  
      return STATUS_SUCCESS;
  }
+diff -ruN -x '*.orig' wine1119-base/dlls/ws2_32/unixlib.c wine1119-chg/dlls/ws2_32/unixlib.c
+--- a/dlls/ws2_32/unixlib.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ws2_32/unixlib.c	2026-10-21 18:29:42.555193756 +0200
+@@ -693,6 +693,69 @@
+     return FALSE;
+ }
+ 
++#define MAX_LOCAL_ADDRS 32
++
++#if defined(HAVE_GETADDRINFO) && defined(HAVE_GETIFADDRS)
++
++/* whether node is this machine's host name, with or without the domain */
++static BOOL is_local_host_name( const char *node )
++{
++    char name[256];
++    size_t len;
++
++    if (!node || gethostname( name, sizeof(name) )) return FALSE;
++    name[sizeof(name) - 1] = 0;
++    if (!strcasecmp( node, name )) return TRUE;
++    len = strcspn( name, "." );
++    return strlen( node ) == len && !strncasecmp( node, name, len );
++}
++
++/* Windows always resolves its own host name (and "", which ws2_32 turns into
++ * it).  Hosts without nss-myhostname (OpenBSD and other BSDs) usually cannot,
++ * unless the name is in /etc/hosts.  Answer like nss-myhostname: with the
++ * addresses of the configured interfaces that are up (no loopback or IPv6
++ * link-local), or with localhost if there are none.  Each address is resolved
++ * numerically with the caller's hints and service; returns the number of
++ * result lists stored in lists. */
++static unsigned int getaddrinfo_local_host( const char *service, const struct addrinfo *hints,
++                                            struct addrinfo **lists )
++{
++    struct addrinfo numeric_hints = {0};
++    struct ifaddrs *ifaddrs, *ifa;
++    char addr[INET6_ADDRSTRLEN];
++    unsigned int count = 0;
++
++    if (hints) numeric_hints = *hints;
++    numeric_hints.ai_flags = (numeric_hints.ai_flags | AI_NUMERICHOST) & ~AI_CANONNAME;
++
++    if (!getifaddrs( &ifaddrs ))
++    {
++        for (ifa = ifaddrs; ifa && count < MAX_LOCAL_ADDRS; ifa = ifa->ifa_next)
++        {
++            int family = ifa->ifa_addr ? ifa->ifa_addr->sa_family : AF_UNSPEC;
++            const void *in;
++
++            if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
++            if (family == AF_INET)
++                in = &((const struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
++            else if (family == AF_INET6)
++            {
++                in = &((const struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
++                if (IN6_IS_ADDR_LINKLOCAL( (const struct in6_addr *)in )) continue;
++            }
++            else continue;
++            if (numeric_hints.ai_family != AF_UNSPEC && numeric_hints.ai_family != family) continue;
++            if (!inet_ntop( family, in, addr, sizeof(addr) )) continue;
++            if (!getaddrinfo( addr, service, &numeric_hints, &lists[count] )) count++;
++        }
++        freeifaddrs( ifaddrs );
++    }
++    if (!count && !getaddrinfo( "localhost", service, hints, &lists[0] )) count = 1;
++    return count;
++}
++
++#endif
++
+ static NTSTATUS unix_getaddrinfo( void *args )
+ {
+ #ifdef HAVE_GETADDRINFO
+@@ -700,9 +763,10 @@
+     const char *service = params->service;
+     const struct WS_addrinfo *hints = params->hints;
+     struct addrinfo unix_hints = {0};
+-    struct addrinfo *unix_info, *src;
++    struct addrinfo *lists[MAX_LOCAL_ADDRS], *src;
+     struct WS_addrinfo *dst, *prev = NULL;
+-    unsigned int needed_size = 0;
++    unsigned int needed_size = 0, list_count = 1, i;
++    const char *canonname = NULL;
+     int ret;
+ 
+     /* servname tweak required by OSX and BSD kernels */
+@@ -750,11 +814,28 @@
+         }
+     }
+ 
+-    ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &unix_info );
++    ret = getaddrinfo( params->node, service, hints ? &unix_hints : NULL, &lists[0] );
++#ifdef HAVE_GETIFADDRS
++    if ((ret == EAI_NONAME
++#ifdef EAI_NODATA
++         || ret == EAI_NODATA
++#endif
++        ) && is_local_host_name( params->node ))
++    {
++        TRACE( "resolving local host name %s from the interface addresses\n", debugstr_a(params->node) );
++        if ((list_count = getaddrinfo_local_host( service, hints ? &unix_hints : NULL, lists )))
++        {
++            ret = 0;
++            if (hints && (unix_hints.ai_flags & AI_CANONNAME)) canonname = params->node;
++        }
++    }
++#endif
+     if (ret)
+         return addrinfo_err_from_unix( ret );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    if (canonname) needed_size += strlen( canonname ) + 1;
++    for (i = 0; i < list_count; i++)
++    for (src = lists[i]; src != NULL; src = src->ai_next)
+     {
+         needed_size += sizeof(struct WS_addrinfo);
+         if (src->ai_canonname)
+@@ -765,7 +846,7 @@
+     if (*params->size < needed_size)
+     {
+         *params->size = needed_size;
+-        freeaddrinfo( unix_info );
++        for (i = 0; i < list_count; i++) freeaddrinfo( lists[i] );
+         return ERROR_INSUFFICIENT_BUFFER;
+     }
+ 
+@@ -773,9 +854,11 @@
+ 
+     memset( params->info, 0, needed_size );
+ 
+-    for (src = unix_info; src != NULL; src = src->ai_next)
++    for (i = 0; i < list_count; i++)
++    for (src = lists[i]; src != NULL; src = src->ai_next)
+     {
+         void *next = dst + 1;
++        const char *src_canonname = (canonname && dst == params->info) ? canonname : src->ai_canonname;
+ 
+         dst->ai_flags = addrinfo_flags_from_unix( src->ai_flags );
+         dst->ai_family = family_from_unix( src->ai_family );
+@@ -789,12 +872,12 @@
+             dst->ai_socktype = socktype_from_unix( src->ai_socktype );
+             dst->ai_protocol = protocol_from_unix( src->ai_protocol );
+         }
+-        if (src->ai_canonname)
++        if (src_canonname)
+         {
+-            size_t len = strlen( src->ai_canonname ) + 1;
++            size_t len = strlen( src_canonname ) + 1;
+ 
+             dst->ai_canonname = next;
+-            memcpy( dst->ai_canonname, src->ai_canonname, len );
++            memcpy( dst->ai_canonname, src_canonname, len );
+             next = dst->ai_canonname + len;
+         }
+ 
+@@ -813,7 +896,7 @@
+         }
+     }
+ 
+-    freeaddrinfo( unix_info );
++    for (i = 0; i < list_count; i++) freeaddrinfo( lists[i] );
+     return 0;
+ #else
+     FIXME( "getaddrinfo() not found during build time\n" );
+diff -ruN -x '*.orig' wine1119-base/include/wine/server_protocol.h wine1119-chg/include/wine/server_protocol.h
+--- a/include/wine/server_protocol.h	2026-10-21 10:30:15.289810277 +0200
++++ b/include/wine/server_protocol.h	2026-10-21 18:02:35.705323081 +0200
+@@ -499,7 +499,8 @@
+     APC_UNMAP_VIEW,
+     APC_CREATE_THREAD,
+     APC_DUP_HANDLE,
+-    APC_COPY_MEMORY
++    APC_COPY_MEMORY,
++    APC_WRITE_MEMORY
+ };
+ 
+ struct user_apc
+@@ -645,6 +646,13 @@
+         mem_size_t       size;
+         int              write;
+     } copy_memory;
++    struct
++    {
++        enum apc_type    type;
++        data_size_t      size;
++        client_ptr_t     addr;
++        unsigned char    data[8];
++    } write_memory;
+ };
+ 
+ union apc_result
+@@ -763,6 +771,11 @@
+         unsigned int     status;
+         mem_size_t       size;
+     } copy_memory;
++    struct
++    {
++        enum apc_type    type;
++        unsigned int     status;
++    } write_memory;
+ };
+ 
+ enum irp_type
+@@ -1217,7 +1230,7 @@
+ {
+     struct reply_header __header;
+     int          suspend;
+-    char __pad_12[4];
++    int          debugged;
+ };
+ 
+ 
+@@ -7199,6 +7212,6 @@
+     struct alpc_create_port_reply alpc_create_port_reply;
+ };
+ 
+-#define SERVER_PROTOCOL_VERSION 964
++#define SERVER_PROTOCOL_VERSION 965
+ 
+ #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
 diff -ruN -x '*.orig' wine1119-base/server/change.c wine1119-chg/server/change.c
 --- a/server/change.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/server/change.c	2026-10-21 15:24:20.071337208 +0200
@@ -372,6 +740,183 @@ diff -ruN -x '*.orig' wine1119-base/server/file.h wine1119-chg/server/file.h
  extern client_ptr_t get_fd_map_address( struct fd *fd );
  extern void set_fd_map_address( struct fd *fd, client_ptr_t addr, mem_size_t size );
  extern int is_same_file_fd( struct fd *fd1, struct fd *fd2 );
+diff -ruN -x '*.orig' wine1119-base/server/process.c wine1119-chg/server/process.c
+--- a/server/process.c	2026-10-21 10:30:15.309595522 +0200
++++ b/server/process.c	2026-10-21 18:02:35.298039923 +0200
+@@ -1442,7 +1442,13 @@
+ 
+     if (process->image_info.subsystem != IMAGE_SUBSYSTEM_WINDOWS_CUI)
+         process->idle_event = create_event( NULL, empty_str, 0, 1, 0, NULL );
++#ifdef __OpenBSD__
++    /* the client sets its own PEB flag; a write by the server would only
++     * happen after the reply (write_process_memory_apc) */
++    reply->debugged = (process->debug_obj != NULL);
++#else
+     if (process->debug_obj) set_process_debug_flag( process, 1 );
++#endif
+     reply->suspend = (current->suspend || process->suspend);
+ }
+ 
+@@ -1603,6 +1609,23 @@
+             procstat_close( procstat );
+         }
+         else set_error( STATUS_ACCESS_DENIED );
++#elif defined(__OpenBSD__)
++        int mib[] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, process->unix_pid, sizeof(struct kinfo_proc), 1 };
++        struct kinfo_proc kp;
++        size_t len = sizeof(kp);
++        mem_size_t page = getpagesize();
++
++        if (!sysctl( mib, ARRAY_SIZE(mib), &kp, &len, NULL, 0 ) && len == sizeof(kp))
++        {
++            /* as in ntdll fill_vm_counters() */
++            reply->virtual_size = ((mem_size_t)kp.p_vm_tsize + kp.p_vm_dsize + kp.p_vm_ssize) * page;
++            reply->peak_virtual_size = reply->virtual_size;
++            reply->working_set_size = kp.p_vm_rssize * page;
++            reply->peak_working_set_size = max( kp.p_uru_maxrss * 1024, reply->working_set_size );
++            reply->pagefile_usage = ((mem_size_t)kp.p_vm_dsize + kp.p_vm_ssize) * page;
++            reply->peak_pagefile_usage = reply->pagefile_usage;
++        }
++        else set_error( STATUS_ACCESS_DENIED );
+ #endif
+     }
+     else set_error( STATUS_ACCESS_DENIED );
+diff -ruN -x '*.orig' wine1119-base/server/protocol.def wine1119-chg/server/protocol.def
+--- a/server/protocol.def	2026-10-21 10:30:15.317254438 +0200
++++ b/server/protocol.def	2026-10-21 18:02:20.336167462 +0200
+@@ -515,7 +515,8 @@
+     APC_UNMAP_VIEW,
+     APC_CREATE_THREAD,
+     APC_DUP_HANDLE,
+-    APC_COPY_MEMORY /* OpenBSD only, don't upstream */
++    APC_COPY_MEMORY, /* OpenBSD only, don't upstream */
++    APC_WRITE_MEMORY /* OpenBSD only, don't upstream */
+ };
+ 
+ struct user_apc
+@@ -661,6 +662,13 @@
+         mem_size_t       size;         /* allocation size */
+         int              write;        /* TRUE - copy from handle to addr, FALSE - from addr to handle*/
+     } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;         /* APC_WRITE_MEMORY */
++        data_size_t      size;         /* number of bytes in data */
++        client_ptr_t     addr;         /* address to write to */
++        unsigned char    data[8];      /* bytes to write */
++    } write_memory; /* OpenBSD only, don't upstream: the server cannot ptrace() */
+ };
+ 
+ union apc_result
+@@ -779,6 +787,11 @@
+         unsigned int     status;    /* status returned by call */
+         mem_size_t       size;      /* resulting size */
+     } copy_memory; /* OpenBSD only, don't upstream */
++    struct
++    {
++        enum apc_type    type;      /* APC_WRITE_MEMORY */
++        unsigned int     status;    /* status returned by call */
++    } write_memory; /* OpenBSD only, don't upstream */
+ };
+ 
+ enum irp_type
+@@ -1202,6 +1215,7 @@
+     client_ptr_t peb;          /* PEB of new process (in process address space) */
+ @REPLY
+     int          suspend;      /* is process suspended? */
++    int          debugged;     /* is process being debugged? (OpenBSD only, PEB flag set by the client) */
+ @END
+ 
+ 
+diff -ruN -x '*.orig' wine1119-base/server/ptrace.c wine1119-chg/server/ptrace.c
+--- a/server/ptrace.c	2026-10-21 10:30:15.321031375 +0200
++++ b/server/ptrace.c	2026-10-21 18:02:35.269277329 +0200
+@@ -26,6 +26,7 @@
+ #include <stdio.h>
+ #include <signal.h>
+ #include <stdarg.h>
++#include <string.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+ #ifdef HAVE_SYS_PTRACE_H
+@@ -596,14 +597,45 @@
+     return ret;
+ }
+ 
++#ifdef __OpenBSD__
++/* OpenBSD only lets a process ptrace() its descendants (kern.global_ptrace=0),
++ * and the client processes are not descendants of the server, so a small write
++ * is done by the process itself in a system APC.  It happens asynchronously,
++ * when a thread of the process next handles system APCs; a suspended process
++ * (debugger_attach, debugger_detach) handles it before it resumes. */
++static int write_process_memory_apc( struct process *process, client_ptr_t ptr, data_size_t size,
++                                     const char *src, data_size_t *written )
++{
++    union apc_call call;
++
++    memset( &call, 0, sizeof(call) );
++    call.write_memory.type = APC_WRITE_MEMORY;
++    call.write_memory.size = size;
++    call.write_memory.addr = ptr;
++    memcpy( call.write_memory.data, src, size );
++    if (!thread_queue_apc( process, NULL, NULL, &call ))
++    {
++        set_error( STATUS_ACCESS_DENIED );
++        return 0;
++    }
++    if (written) *written = size;
++    return 1;
++}
++#endif
++
+ /* write data to a process memory space */
+ int write_process_memory( struct process *process, client_ptr_t ptr, data_size_t size, const char *src,
+                           data_size_t *written )
+ {
+-    struct thread *thread = get_ptrace_thread( process );
++    struct thread *thread;
+     int ret;
+ 
+-    if (!thread) return 0;
++#ifdef __OpenBSD__
++    if (size <= sizeof(((union apc_call *)0)->write_memory.data))
++        return write_process_memory_apc( process, ptr, size, src, written );
++#endif
++
++    if (!(thread = get_ptrace_thread( process ))) return 0;
+ 
+     if ((unsigned long)ptr != ptr)
+     {
+diff -ruN -x '*.orig' wine1119-base/server/request_handlers.h wine1119-chg/server/request_handlers.h
+--- a/server/request_handlers.h	2026-10-02 23:15:08.000000000 +0200
++++ b/server/request_handlers.h	2026-10-21 18:02:35.719405538 +0200
+@@ -722,6 +722,7 @@
+ C_ASSERT( offsetof(struct init_process_done_request, peb) == 24 );
+ C_ASSERT( sizeof(struct init_process_done_request) == 32 );
+ C_ASSERT( offsetof(struct init_process_done_reply, suspend) == 8 );
++C_ASSERT( offsetof(struct init_process_done_reply, debugged) == 12 );
+ C_ASSERT( sizeof(struct init_process_done_reply) == 16 );
+ C_ASSERT( offsetof(struct init_first_thread_request, unix_pid) == 12 );
+ C_ASSERT( offsetof(struct init_first_thread_request, unix_tid) == 16 );
+diff -ruN -x '*.orig' wine1119-base/server/request_trace.h wine1119-chg/server/request_trace.h
+--- a/server/request_trace.h	2026-10-02 23:15:08.000000000 +0200
++++ b/server/request_trace.h	2026-10-21 18:02:35.713009580 +0200
+@@ -135,6 +135,7 @@
+ static void dump_init_process_done_reply( const struct init_process_done_reply *req )
+ {
+     fprintf( stderr, " suspend=%d", req->suspend );
++    fprintf( stderr, ", debugged=%d", req->debugged );
+ }
+ 
+ static void dump_init_first_thread_request( const struct init_first_thread_request *req )
+@@ -4557,6 +4558,7 @@
+     { "INVALID_USER_BUFFER",         STATUS_INVALID_USER_BUFFER },
+     { "IO_REPARSE_DATA_INVALID",     STATUS_IO_REPARSE_DATA_INVALID },
+     { "IO_REPARSE_TAG_INVALID",      STATUS_IO_REPARSE_TAG_INVALID },
++    { "IO_REPARSE_TAG_MISMATCH",     STATUS_IO_REPARSE_TAG_MISMATCH },
+     { "IO_TIMEOUT",                  STATUS_IO_TIMEOUT },
+     { "KERNEL_APC",                  STATUS_KERNEL_APC },
+     { "KEY_DELETED",                 STATUS_KEY_DELETED },
 diff -ruN -x '*.orig' wine1119-base/server/sock.c wine1119-chg/server/sock.c
 --- a/server/sock.c	2026-10-21 10:30:15.331031386 +0200
 +++ b/server/sock.c	2026-10-21 15:25:01.543618566 +0200

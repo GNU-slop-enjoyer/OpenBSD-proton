@@ -3,6 +3,59 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
+## 2026-10-21 — Session 3: Linux reference, OpenBSD-only failures fixed
+
+### What changed
+- **Linux reference** (`scripts/linux-ref-build.sh`): pristine Proton wine
+  e60892cc built on the Gentoo host; the VM's winetest binaries run there
+  without a display (`docs/results/winetest-linux-ref.txt`). Units that
+  fail identically on Linux are Proton/environment behaviour; the rest
+  were investigated:
+  - bcrypt ECDH (27 failures): libgcrypt was not a port dependency, so
+    configure never saw it → p6 depends on security/libgcrypt, devel/gmp.
+  - ntdll info (26 → 4, Linux 4): memory counters and CPU times now come
+    from sysctl(2) (ntdll + wineserver).
+  - Debugging: wineserver wrote PEB BeingDebugged with ptrace(), which
+    OpenBSD refuses for non-children → DebugActiveProcess failed and every
+    DEBUG_PROCESS child aborted. New APC_WRITE_MEMORY + init_process_done
+    "debugged" field (protocol 932).
+  - ws2_32 protocol (19 → 1, the 1 is a todo that passes): local host name
+    resolved from interface addresses when the system cannot (p7, not
+    packaged yet).
+  - kernel32 loader / ucrtbase file / ntdll directory: test-setup
+    artefacts of the p1 run (mscoree disabled, C locale).
+  - ws2_32 afd (2): OpenBSD poll semantics (OOB still flagged after
+    reading the OOB byte; CONNECT with RESET) — left as is.
+- `tests/pe/sysinfo.c`: 25/25 with the installed p6 package.
+- emulators/wine-11.19 bundle: first batch tested as wine-11.19p2 (change
+  notifications, virtual, om, sock fixed); the run also proved the
+  debugger abort on stock 11.19. Second batch (sysctl info, debugger,
+  getaddrinfo) ported, 58 patches; **not built yet**.
+- VM: libgcrypt/libgpg-error/dwz installed by hand — the ports framework's
+  own pkg_add of freshly built dependencies fails with "Can't find …tgz"
+  (unsigned); install them with `doas env TRUSTED_PKG_PATH=… pkg_add` and
+  restart the build.
+
+### Files
+ports/emulators/proton-wine (Makefile p7, patches), tests/pe/sysinfo.c,
+scripts/linux-ref-build.sh, docs/results/, upstream-submissions/emulators-wine,
+docs/TESTING.md, docs/COMPATIBILITY.md. Work tree commits 6ca8385, de69b83.
+
+### State / next actions
+1. Full winetest with installed p6 running in the VM:
+   `~builder/winetest/out-p6` (log `run-p6.log`); compare with
+   `docs/results/winetest-linux-ref.txt` and out-p1.
+2. Build emulators/wine-11.19 with the 58-patch bundle (copy
+   `upstream-submissions/emulators-wine/patches` over the port's patches,
+   keep `patches.orig`, REVISION 3 locally), test ntdll info (no more
+   assertion), sysinfo, ws2_32 protocol; restore the port dir.
+3. Package proton-wine p7 (`make clean=fake; make package` is enough: only
+   ws2_32 changed) and retest ws2_32.
+4. Audio: build mmdevapi/dsound/winmm tests (`winetest-build.sh`), run
+   with pulseaudio and a null sink.
+5. kernel32 process unit times out (also with p5 and an older prefix
+   setup): investigate.
+
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
 
 ### What changed

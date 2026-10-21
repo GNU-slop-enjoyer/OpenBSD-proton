@@ -1,17 +1,18 @@
 Index: include/wine/server_protocol.h
 --- include/wine/server_protocol.h.orig
 +++ include/wine/server_protocol.h
-@@ -498,7 +498,8 @@ enum apc_type
+@@ -498,7 +498,9 @@ enum apc_type
      APC_MAP_VIEW_EX,
      APC_UNMAP_VIEW,
      APC_CREATE_THREAD,
 -    APC_DUP_HANDLE
 +    APC_DUP_HANDLE,
-+    APC_COPY_MEMORY
++    APC_COPY_MEMORY,
++    APC_WRITE_MEMORY
  };
  
  struct user_apc
-@@ -636,6 +637,14 @@ union apc_call
+@@ -636,6 +638,21 @@ union apc_call
          unsigned int     attributes;
          unsigned int     options;
      } dup_handle;
@@ -23,10 +24,17 @@ Index: include/wine/server_protocol.h
 +        mem_size_t       size;
 +        int              write;
 +    } copy_memory;
++    struct
++    {
++        enum apc_type    type;
++        data_size_t      size;
++        client_ptr_t     addr;
++        unsigned char    data[8];
++    } write_memory;
  };
  
  union apc_result
-@@ -748,6 +757,12 @@ union apc_result
+@@ -748,6 +765,17 @@ union apc_result
          enum apc_type    type;
          unsigned int     status;
      } break_process;
@@ -36,14 +44,28 @@ Index: include/wine/server_protocol.h
 +        unsigned int     status;
 +        mem_size_t       size;
 +    } copy_memory;
++    struct
++    {
++        enum apc_type    type;
++        unsigned int     status;
++    } write_memory;
  };
  
  enum irp_type
-@@ -7184,6 +7199,6 @@ union generic_reply
+@@ -1202,7 +1230,7 @@ struct init_process_done_reply
+ {
+     struct reply_header __header;
+     int          suspend;
+-    char __pad_12[4];
++    int          debugged;
+ };
+ 
+ 
+@@ -7184,6 +7212,6 @@ union generic_reply
      struct alpc_create_port_reply alpc_create_port_reply;
  };
  
 -#define SERVER_PROTOCOL_VERSION 962
-+#define SERVER_PROTOCOL_VERSION 964
++#define SERVER_PROTOCOL_VERSION 965
  
  #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
