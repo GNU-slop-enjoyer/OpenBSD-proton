@@ -227,3 +227,12 @@ arbitrary code.
   live attach to wine processes produced no output.
 - `ktrace -i -t S` records pinsyscalls(2) violations (the kernel's
   explanation is otherwise only uprintf'd to the controlling tty).
+
+## Synchronization and timer resolution (session 3)
+
+Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
+
+| Issue | Fix |
+|---|---|
+| Waits on kernel objects (events, semaphores, mutexes) are wineserver round trips: 17 µs for a wait on a signaled event (Linux server-side 4.8 µs, Proton fsync 0.12 µs). Proton's fsync needs Linux futex_waitv; its in-process sync objects were only compiled with the Linux ntsync header | fsync backend on OpenBSD futex(2) (shared futexes work across processes on the shm_open() mapping): single-object waits FUTEX_WAIT; multi-object/alertable waits wait on a generation counter in shm slot 0 that wakes bump while such waiters exist. Server inproc sync objects compiled with OpenBSD declarations of the ntsync request numbers. Opt-in `WINEFSYNC=1` (p10): signaled-event wait 0.35 µs, semaphore 4.5 µs, mutex 9.8 µs. ntdll sync shows the same 4 failures as Proton's fsync on Linux; kernel32 sync the same 4 plus a timer-queue race (also seen 2/5 without fsync, from the coarse clock) |
+| OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout: Sleep(1) 20 ms, Sleep(16) 30 ms; timeBeginPeriod() did nothing | timeBeginPeriod(<10 ms) → NtSetTimerResolution; ntdll then sleeps in the kernel only while more than two ticks remain and yields for the rest (Sleep(1) 1.00 ms, Sleep(16) 16.00 ms). `WINE_PRECISE_SLEEP=1/0` forces it on/off. Timed waits on objects (WaitForSingleObject(h, 1)) still round to ticks |

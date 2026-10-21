@@ -1,15 +1,36 @@
 Proton's ntsync_tmp.h is a copy of a Linux uapi header (<linux/types.h>);
-only include it on Linux.  Without it the server-based fallback is used.
+only include it on Linux.  On OpenBSD declare the ntsync request numbers
+instead, so that the in-process sync objects fsync needs are compiled (the
+ioctls are never issued on a valid descriptor without /dev/ntsync).
 
 Index: server/inproc_sync.c
 --- server/inproc_sync.c.orig
 +++ server/inproc_sync.c
-@@ -36,7 +36,9 @@
+@@ -36,7 +36,28 @@
  
  #include "fsync.h"
  
 +#ifdef __linux__
  #include "ntsync_tmp.h"
++#elif defined(__OpenBSD__)
++/* There is no ntsync on OpenBSD, but fsync (WINEFSYNC=1) needs the in-process
++ * sync objects below.  Without /dev/ntsync, get_inproc_device_fd() returns -1
++ * (or FSYNC_USED_BY_SERVER) and the ntsync ioctls are never issued on a valid
++ * descriptor, as on Linux without ntsync.  Argument layouts and request
++ * numbers from ntsync_tmp.h, which needs <linux/types.h>. */
++#include <stdint.h>
++#include <sys/ioccom.h>
++typedef uint32_t __u32;
++struct ntsync_sem_args { uint32_t count; uint32_t max; };
++struct ntsync_mutex_args { uint32_t owner; uint32_t count; };
++struct ntsync_event_args { uint32_t manual; uint32_t signaled; };
++#define NTSYNC_IOC_CREATE_SEM    _IOW('N', 0x80, struct ntsync_sem_args)
++#define NTSYNC_IOC_CREATE_MUTEX  _IOW('N', 0x84, struct ntsync_mutex_args)
++#define NTSYNC_IOC_MUTEX_KILL    _IOW('N', 0x86, uint32_t)
++#define NTSYNC_IOC_CREATE_EVENT  _IOW('N', 0x87, struct ntsync_event_args)
++#define NTSYNC_IOC_EVENT_SET     _IOR('N', 0x88, uint32_t)
++#define NTSYNC_IOC_EVENT_RESET   _IOR('N', 0x89, uint32_t)
++#define NTSYNC_IOC_EVENT_READ    _IOR('N', 0x8d, struct ntsync_event_args)
 +#endif
  
  #ifdef NTSYNC_IOC_EVENT_READ

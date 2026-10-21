@@ -9,6 +9,7 @@
 #                 debugger attach; needs a mingw-w64 C toolchain, MINGW_CC)
 #   make audio    build audio.exe (WASAPI playback timing; mingw-w64 C)
 #   make syncbench  build syncbench.exe (synchronization latency; mingw-w64 C)
+#   make sleeptest  build sleeptest.exe (Sleep granularity; mingw-w64 C)
 #   make clean
 
 CLANG ?=	clang
@@ -90,7 +91,13 @@ ${OUT}/syncbench.exe: syncbench.c
 	mkdir -p ${OUT}
 	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ syncbench.c -lsynchronization
 
+sleeptest: ${OUT}/sleeptest.exe
+
+${OUT}/sleeptest.exe: sleeptest.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ sleeptest.c -lwinmm
+
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib
 
-.PHONY: all audio clean d3d syncbench sysinfo
+.PHONY: all audio clean d3d sleeptest syncbench sysinfo

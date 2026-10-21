@@ -1,7 +1,9 @@
-Proton's fsync uses the Linux futex and futex_waitv syscalls through
-syscall(2), which OpenBSD libc does not provide.  fsync is never enabled
-outside Linux (server fsync_check_support()); keep the code compiling with
-ENOSYS stubs so that WINEFSYNC=1 fails with the existing error message.
+fsync on OpenBSD (WINEFSYNC=1, opt-in as on Linux).  OpenBSD has futex(2),
+and shared futexes work across processes on the shm_open() mapping, but no
+futex_waitv: single-object waits use FUTEX_WAIT; waits on several futexes
+(multi-object and alertable waits) wait on a generation counter in shm slot
+0, which is never allocated to an object, and wakes bump it while such
+waiters exist.  Other systems keep the ENOSYS stubs.
 
 Index: dlls/ntdll/unix/fsync.c
 --- dlls/ntdll/unix/fsync.c.orig
@@ -14,10 +16,85 @@ Index: dlls/ntdll/unix/fsync.c
  static inline int futex_wait_multiple( const struct futex_waitv *futexes,
          int count, const struct timespec64 *end, clockid_t clock_id )
  {
-@@ -151,6 +152,22 @@ static inline int futex_wake( int *addr,
+@@ -151,6 +152,97 @@ static inline int futex_wake( int *addr,
  {
      return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
  }
++#elif defined(__OpenBSD__)
++#include <time.h>
++#include <sys/futex.h>
++
++/* OpenBSD has futex(2), and shared futexes work across processes on the
++ * shm_open() mapping, but there is no futex_waitv.  A wait on several futexes
++ * waits instead on a generation counter in shm slot 0 (never allocated to an
++ * object): int[0] is the generation, int[1] the number of such waiters.  A
++ * wake bumps the generation while there are waiters; they then recheck their
++ * objects (fsync's wait loops treat any return as "recheck"). */
++static int *wait_any;
++
++static int futex_timeout( const struct timespec64 *end, clockid_t clock_id, struct timespec *ts )
++{
++    struct timespec now;
++
++    clock_gettime( clock_id, &now );
++    ts->tv_sec = end->tv_sec - now.tv_sec;
++    ts->tv_nsec = end->tv_nsec - now.tv_nsec;
++    if (ts->tv_nsec < 0)
++    {
++        ts->tv_nsec += 1000000000;
++        ts->tv_sec--;
++    }
++    if (ts->tv_sec < 0)
++    {
++        errno = ETIMEDOUT;
++        return -1;
++    }
++    return 0;
++}
++
++static inline int futex_wait_multiple( const struct futex_waitv *futexes,
++        int count, const struct timespec64 *end, clockid_t clock_id )
++{
++    struct timespec ts;
++    int i, gen, ret;
++
++    if (!futexes)  /* probe from fsync_init() */
++    {
++        errno = 0;
++        return 0;
++    }
++    if (end && futex_timeout( end, clock_id, &ts )) return -1;
++
++    if (count == 1)
++        return futex( u64_to_ptr(futexes[0].uaddr), FUTEX_WAIT, futexes[0].val, end ? &ts : NULL, NULL );
++
++    gen = __atomic_load_n( &wait_any[0], __ATOMIC_SEQ_CST );
++    __atomic_add_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    for (i = 0; i < count; i++)
++    {
++        if (__atomic_load_n( (int *)u64_to_ptr(futexes[i].uaddr), __ATOMIC_SEQ_CST ) != (int)futexes[i].val)
++        {
++            __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++            errno = EAGAIN;
++            return -1;
++        }
++    }
++    ret = futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAIT, gen, end ? &ts : NULL, NULL );
++    __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    return ret;
++}
++
++static inline int futex_wake( int *addr, int val )
++{
++    int ret = futex( (volatile uint32_t *)addr, FUTEX_WAKE, val, NULL, NULL );
++
++    if (__atomic_load_n( &wait_any[1], __ATOMIC_SEQ_CST ))
++    {
++        __atomic_add_fetch( &wait_any[0], 1, __ATOMIC_SEQ_CST );
++        futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAKE, INT_MAX, NULL, NULL );
++    }
++    return ret;
++}
 +#else
 +/* No futex_waitv outside Linux: fsync_init() reports this and exits, and
 + * the server never enables fsync there (fsync_check_support()). */
@@ -37,7 +114,7 @@ Index: dlls/ntdll/unix/fsync.c
  
  struct fsync
  {
-@@ -456,7 +473,7 @@ void fsync_init( DWORD pid )
+@@ -456,7 +548,7 @@ void fsync_init( DWORD pid )
  
  
      fsync_enabled = 1;
@@ -46,3 +123,13 @@ Index: dlls/ntdll/unix/fsync.c
      if (errno == ENOSYS || errno == EPERM)
      {
          ERR("Server is running with WINEFSYNC but this process can't use __NR_futex_waitv.\n");
+@@ -483,6 +575,9 @@ void fsync_init( DWORD pid )
+ 
+     current_pid = pid;
+     assert( current_pid );
++#ifdef __OpenBSD__
++    wait_any = get_shm( 0 );
++#endif
+ }
+ 
+ NTSTATUS fsync_release_semaphore( HANDLE handle, ULONG count, ULONG *prev )

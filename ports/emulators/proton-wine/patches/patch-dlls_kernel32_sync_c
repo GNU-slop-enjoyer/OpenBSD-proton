@@ -1,0 +1,53 @@
+timeBeginPeriod()/timeEndPeriod() with a period below 10 ms tell ntdll
+(NtSetTimerResolution) while such requests are outstanding, for the
+precise-sleep mode in patch-dlls_ntdll_unix_sync_c.
+
+Index: dlls/kernel32/sync.c
+--- dlls/kernel32/sync.c.orig
++++ dlls/kernel32/sync.c
+@@ -832,17 +832,27 @@ MMRESULT WINAPI timeGetDevCaps(TIMECAPS
+     return 0;
+ }
+ 
++/* number of outstanding timeBeginPeriod() calls with a period finer than
++ * 10 ms; ntdll is told while there are any (NtSetTimerResolution), which
++ * matters where the host's timers are coarser than that (OpenBSD) */
++static LONG fine_period_count;
++
+ /******************************************************************************
+  *		timeBeginPeriod (KERNEL32.@)
+  */
+ MMRESULT WINAPI timeBeginPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedIncrement( &fine_period_count ) == 1)
++        NtSetTimerResolution( period * 10000, TRUE, &current );
++
+     return 0;
+ }
+ 
+@@ -851,12 +861,17 @@ MMRESULT WINAPI timeBeginPeriod(UINT per
+  */
+ MMRESULT WINAPI timeEndPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedDecrement( &fine_period_count ) == 0)
++        NtSetTimerResolution( 0, FALSE, &current );
++
+     return 0;
+ }
+ 

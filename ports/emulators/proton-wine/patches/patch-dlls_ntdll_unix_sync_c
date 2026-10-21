@@ -1,6 +1,11 @@
 Proton's ntsync_tmp.h is a copy of a Linux uapi header (<linux/types.h>);
 only include it on Linux.  Without it the server-based fallback is used.
 
+Precise sleeps: OpenBSD's clock ticks at 100 Hz (Sleep(1) took 20 ms).  When
+the process asked for a fine timer resolution (NtSetTimerResolution, via
+timeBeginPeriod) or WINE_PRECISE_SLEEP=1 is set, NtDelayExecution sleeps in
+the kernel only while more than two ticks remain and yields for the rest.
+
 Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
 arguments in this file; see patch-include_wine_unixlib_h.
 
@@ -95,7 +100,34 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "signal %p, wait %p, alertable %u, timeout %s\n", signal, wait, alertable, debugstr_timeout(timeout) );
  
      if (!signal) return STATUS_INVALID_HANDLE;
-@@ -2452,6 +2472,8 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
+@@ -2448,10 +2468,35 @@ NTSTATUS WINAPI NtYieldExecution(void)
+ /******************************************************************
+  *		NtDelayExecution (NTDLL.@)
+  */
++#ifdef __OpenBSD__
++/* resolution requested with NtSetTimerResolution(), in 100 ns units; 0 if none */
++static ULONG timer_resolution_request;
++
++/* OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout,
++ * so Sleep(1) takes 20 ms and Sleep(16) 30 ms.  When the process asked for a
++ * finer timer resolution (timeBeginPeriod(1), as games with frame limiters
++ * do), or WINE_PRECISE_SLEEP=1 is set, sleep in the kernel only while more
++ * than two ticks remain and yield the CPU for the rest. */
++static BOOL use_precise_sleep(void)
++{
++    static int setting = -1;
++
++    if (setting == -1)
++    {
++        const char *env = getenv( "WINE_PRECISE_SLEEP" );
++        setting = env && *env ? !!atoi( env ) : 2;
++    }
++    if (setting != 2) return setting;
++    return timer_resolution_request && timer_resolution_request < 100000;
++}
++#endif
++
+ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeout )
  {
      unsigned int status = STATUS_SUCCESS;
  
@@ -104,7 +136,25 @@ Index: dlls/ntdll/unix/sync.c
      /* if alertable, we need to query the server */
      if (alertable)
      {
-@@ -2588,6 +2610,8 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
+@@ -2494,6 +2539,17 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
+             NtQuerySystemTime( &now );
+             diff = (when - now.QuadPart + 9) / 10;
+             if (diff <= 0) break;
++#ifdef __OpenBSD__
++            if (use_precise_sleep())
++            {
++                if (diff <= 20000)  /* two ticks */
++                {
++                    sched_yield();
++                    continue;
++                }
++                diff -= 20000;
++            }
++#endif
+             tv.tv_sec  = diff / 1000000;
+             tv.tv_usec = diff % 1000000;
+             if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
+@@ -2588,6 +2644,8 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
  {
      static BOOL has_request = FALSE;
  
@@ -113,7 +163,17 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "(%u,%u,%p), semi-stub!\n", res, set, current_res );
  
      /* Wine has no support for anything other that 1 ms and does not keep of
-@@ -2716,6 +2740,8 @@ NTSTATUS WINAPI NtWaitForKeyedEvent( HAN
+@@ -2604,6 +2662,9 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
+     if (!has_request && !set)
+         return STATUS_TIMER_RESOLUTION_NOT_SET;
+     has_request = set;
++#ifdef __OpenBSD__
++    timer_resolution_request = set ? res : 0;
++#endif
+ 
+     return STATUS_SUCCESS;
+ }
+@@ -2716,6 +2777,8 @@ NTSTATUS WINAPI NtWaitForKeyedEvent( HAN
      union select_op select_op;
      UINT flags = SELECT_INTERRUPTIBLE;
  
@@ -122,7 +182,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
  
      if (!handle) handle = keyed_event;
-@@ -2737,6 +2763,8 @@ NTSTATUS WINAPI NtReleaseKeyedEvent( HAN
+@@ -2737,6 +2800,8 @@ NTSTATUS WINAPI NtReleaseKeyedEvent( HAN
      union select_op select_op;
      UINT flags = SELECT_INTERRUPTIBLE;
  
@@ -131,7 +191,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
  
      if (!handle) handle = keyed_event;
-@@ -2919,6 +2947,8 @@ NTSTATUS WINAPI NtRemoveIoCompletionEx(
+@@ -2919,6 +2984,8 @@ NTSTATUS WINAPI NtRemoveIoCompletionEx(
      unsigned int status;
      ULONG i = 0;
  
@@ -140,7 +200,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "%p %p %u %p %p %u\n", handle, info, count, written, timeout, alertable );
  
      if (!count) return STATUS_INVALID_PARAMETER;
-@@ -3165,6 +3195,8 @@ NTSTATUS WINAPI NtListenPort( HANDLE han
+@@ -3165,6 +3232,8 @@ NTSTATUS WINAPI NtListenPort( HANDLE han
  NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
                                       LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
  {
@@ -149,7 +209,7 @@ Index: dlls/ntdll/unix/sync.c
      FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
      return STATUS_NOT_IMPLEMENTED;
  }
-@@ -3748,6 +3780,8 @@ NTSTATUS WINAPI NtCreateTransaction( HAN
+@@ -3748,6 +3817,8 @@ NTSTATUS WINAPI NtCreateTransaction( HAN
   */
  NTSTATUS WINAPI NtCommitTransaction( HANDLE transaction, BOOLEAN wait )
  {
@@ -158,7 +218,7 @@ Index: dlls/ntdll/unix/sync.c
      FIXME( "%p, %d stub.\n", transaction, wait );
  
      return STATUS_SUCCESS;
-@@ -3758,6 +3792,8 @@ NTSTATUS WINAPI NtCommitTransaction( HAN
+@@ -3758,6 +3829,8 @@ NTSTATUS WINAPI NtCommitTransaction( HAN
   */
  NTSTATUS WINAPI NtRollbackTransaction( HANDLE transaction, BOOLEAN wait )
  {
