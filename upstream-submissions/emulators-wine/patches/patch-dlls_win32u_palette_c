@@ -1,0 +1,22 @@
+Index: dlls/win32u/palette.c
+--- dlls/win32u/palette.c.orig
++++ dlls/win32u/palette.c
+@@ -512,6 +512,8 @@ HPALETTE WINAPI NtUserSelectPalette( HDC
+     HPALETTE ret = 0;
+     DC *dc;
+ 
++    SYSCALL_NARROW_ARG( bkg );
++
+     TRACE("%p %p\n", hdc, hpal );
+ 
+     if (!bkg && hpal != GetStockObject( DEFAULT_PALETTE ))
+@@ -626,6 +628,9 @@ BOOL WINAPI NtGdiSetMagicColors( HDC hdc
+ LONG WINAPI NtGdiDoPalette( HGDIOBJ handle, WORD start, WORD count, void *entries,
+                             DWORD func, BOOL inbound )
+ {
++    SYSCALL_NARROW_ARG( start );
++    SYSCALL_NARROW_ARG( count );
++
+     switch (func)
+     {
+     case NtGdiAnimatePalette:

@@ -127,7 +127,7 @@ the drive test only because that stack slot happens to be clean.
 
 Fix (proton-wine p1): `SYSCALL_NARROW_ARG()` in `include/wine/unixlib.h`
 (an empty `asm` with a `"+r"` operand on x86_64 clang) at the entry of
-every implemented syscall with such arguments: 44 functions, 57 arguments
+every implemented syscall with such arguments: 44 functions, 51 arguments
 in ntdll and win32u, listed by `scripts/debug/narrow-syscall-args.py`
 (it parses the definitions of all 738 implemented syscalls in the
 generated syscall tables). Candidate for emulators/wine and upstream wine.

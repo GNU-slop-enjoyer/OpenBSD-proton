@@ -1,0 +1,12 @@
+Index: dlls/win32u/input.c
+--- dlls/win32u/input.c.orig
++++ dlls/win32u/input.c
+@@ -1218,6 +1218,8 @@ WORD WINAPI NtUserVkKeyScanEx( WCHAR chr
+     const KBDTABLES *kbd_tables;
+     SHORT ret;
+ 
++    SYSCALL_NARROW_ARG( chr );
++
+     TRACE_(keyboard)( "chr %s, layout %p\n", debugstr_wn(&chr, 1), layout );
+ 
+     if ((ret = user_driver->pVkKeyScanEx( chr, layout )) != -256) return ret;

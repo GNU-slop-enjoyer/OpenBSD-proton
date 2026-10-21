@@ -1,0 +1,23 @@
+Index: dlls/ntdll/unix/registry.c
+--- dlls/ntdll/unix/registry.c.orig
++++ dlls/ntdll/unix/registry.c
+@@ -626,6 +626,9 @@ NTSTATUS WINAPI NtNotifyChangeMultipleKe
+ {
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     TRACE( "(%p,%u,%p,%p,%p,%p,%p,0x%08x, 0x%08x,%p,0x%08x,0x%08x)\n",
+            key, count, attr, event, apc, apc_context, io,
+            filter, async, buffer, length, subtree );
+@@ -667,6 +670,9 @@ NTSTATUS WINAPI NtNotifyChangeKey( HANDL
+                                    IO_STATUS_BLOCK *io, ULONG filter, BOOLEAN subtree,
+                                    void *buffer, ULONG length, BOOLEAN async )
+ {
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     return NtNotifyChangeMultipleKeys( key, 0, NULL, event, apc, apc_context,
+                                        io, filter, subtree, buffer, length, async );
+ }

@@ -26,8 +26,8 @@ blockers, next action.
   tests from the port build tree); `scripts/debug/memcpy-overlap.c`.
 - Docs: FEASIBILITY §4/4a, COMPATIBILITY (runtime bugs, toolchain issues),
   DECISIONS D8/D9, DEPENDENCIES, BUILDING §7–9, TESTING, ROADMAP.
-- Commits on `stage-a/openbsd-vm-baseline`: `7db04ac`, `39febb5`,
-  `c487e72` (pushed).
+- Commits on `stage-a/openbsd-vm-baseline`: `7db04ac`, `39febb5`, `c487e72`,
+  `4f15498` (pushed).
 
 ### Key results (OpenBSD 8.0 VM, no GPU)
 - **Direct3D 11 renders** through proton-wine with wined3d (OpenGL on Mesa
@@ -35,9 +35,22 @@ blockers, next action.
 - DXVK and vkd3d-proton load and fail cleanly at Vulkan instance/device
   creation (no Vulkan device in the VM) — rendering with them needs real
   Intel/AMD hardware.
-- Winetest (20 DLL test suites, 252 units, proton-wine p0, run partly
-  concurrently with port builds): pass 187, fail 47, crash 12, timeout 6.
-  Comparison with wine-11.19 on the same binaries: see below / TESTING.md.
+- Winetest (20 DLL test suites, 252 units, test binaries from the 11.0
+  tree, partly run concurrently with port builds): proton-wine p0 187 pass /
+  47 fail / 12 crash / 6 timeout; OpenBSD's wine-11.19 on the same
+  binaries 183 / 52 / 13 / 4. 57 units fail with both (OpenBSD/wine-port
+  limitations or 11.0-vs-11.19 test differences), 8 only with proton-wine:
+  `kernel32 drive` (bug, fixed in p1), `kernel32 path` (Proton's Steam
+  search path, expected), and ntdll om, user32 scroll, comctl32
+  button/treeview, advapi32 crypt, crypt32 protectdata (being checked
+  against the p1 run).
+- **ABI bug found and fixed (p1):** narrow (BOOLEAN/WORD) syscall arguments
+  reach clang-compiled Unix code with garbage upper bits; 44 syscalls /
+  51 arguments normalised (COMPATIBILITY.md). OpenBSD's emulators/wine has
+  the same latent bug: a 46-syscall / 53-argument patch set for wine-11.19
+  is in `upstream-submissions/emulators-wine/` (not yet built/tested).
+  (Commit `4f15498`'s message says "57 narrow arguments"; the correct count
+  is 51.)
 
 ### Mistakes caught this session
 - Wait loops using `pgrep -f`/`pkill -f` matched their own ssh command
@@ -50,6 +63,36 @@ blockers, next action.
 - The first mingw-w64 p0 package lacked widl (stale PLIST; pkg_create
   ignores unlisted files). Always `make update-plist` after changing what
   a port installs.
+
+### VM state (end of session 2)
+- Installed: proton-wine-11.0.20261008p1, mingw-w64-13.0.0p0,
+  dxvk-2.7.1.20260720, vkd3d-proton-3.0.20260729, proton-openbsd-0.1p0,
+  wine-11.19p0, plus cmake/ninja/meson/glslang. Local unsigned packages in
+  /home/packages (install with `TRUSTED_PKG_PATH`).
+- Winetest: binaries in `~builder/winetest/bin`, results in
+  `~builder/winetest/out-proton` (p0), `out-1119` (wine-11.19), `out-p1`.
+  `~builder/winetest-run.sh`, `winetest-build.sh`.
+- Test programs in `~builder/tests-pe/out`; launcher prefix
+  `~builder/pfx-launch`.
+- Xvfb on :1 must be restarted after a reboot.
+
+### Next concrete actions
+1. Finish the p1 winetest comparison; explain or fix the remaining
+   proton-only units (ntdll om, user32 scroll, comctl32 button/treeview,
+   advapi32 crypt, crypt32 protectdata); re-run timing-sensitive units on
+   an idle VM.
+2. Build and test emulators/wine-11.19 with
+   `upstream-submissions/emulators-wine/patches` (≈2 h build), then
+   consider sending it (ports@openbsd.org / NethIafin/wine) — needs the
+   user's OK, as it is outward-facing.
+3. Investigate crashes common to both wines (`ntdll exception`,
+   `kernel32 file`, `msvcrt misc`, `ole32 marshal`, `ws2_32 sock`, …) —
+   they are OpenBSD-specific candidates (gs emulation, signals, sockets).
+4. Real-hardware Vulkan test of DXVK/vkd3d-proton (needs an OpenBSD
+   machine with Intel/AMD GPU) — not possible in this environment.
+5. Real 64-bit Windows applications (needs the user's OK to download
+   third-party binaries).
+6. wine-mono / wine-gecko packaging (prebuilt PE binaries; same OK).
 
 ## 2026-10-20 — Session 1: environment, OpenBSD VM, baseline build start
 

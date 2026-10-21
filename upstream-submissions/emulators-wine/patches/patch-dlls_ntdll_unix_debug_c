@@ -1,0 +1,12 @@
+Index: dlls/ntdll/unix/debug.c
+--- dlls/ntdll/unix/debug.c.orig
++++ dlls/ntdll/unix/debug.c
+@@ -385,6 +385,8 @@ NTSTATUS WINAPI NtTraceControl( ULONG co
+  */
+ NTSTATUS WINAPI NtSetDebugFilterState( ULONG component_id, ULONG level, BOOLEAN state )
+ {
++    SYSCALL_NARROW_ARG( state );
++
+     FIXME( "component_id %#x, level %u, state %#x stub.\n", component_id, level, state );
+ 
+     return STATUS_SUCCESS;

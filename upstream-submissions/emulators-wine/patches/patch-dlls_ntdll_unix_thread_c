@@ -1,0 +1,59 @@
+Index: dlls/ntdll/unix/thread.c
+--- dlls/ntdll/unix/thread.c.orig
++++ dlls/ntdll/unix/thread.c
+@@ -1121,6 +1121,9 @@ static DECLSPEC_NORETURN void pthread_ex
+     close( data->wait_fd[1] );
+     close( data->reply_fd );
+     close( data->request_fd );
++#ifdef __OpenBSD__
++    remove_signal_tid();
++#endif
+     pthread_exit( UIntToPtr(status) );
+ }
+ 
+@@ -1314,7 +1317,12 @@ static NTSTATUS spawn_thread( struct thr
+ 
+     pthread_sigmask( SIG_BLOCK, &server_block_set, &sigset );
+     pthread_attr_init( &attr );
++#ifdef __OpenBSD__
++    /* Let libpthread allocate and reclaim the native stack. */
++    pthread_attr_setstacksize( &attr, kernel_stack_size );
++#else
+     pthread_attr_setstack( &attr, get_kernel_stack( data ), kernel_stack_size );
++#endif
+     pthread_attr_setguardsize( &attr, 0 );
+     pthread_attr_setscope( &attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
+     InterlockedIncrement( &nb_threads );
+@@ -1376,6 +1384,8 @@ NTSTATUS WINAPI NtCreateThread( HANDLE *
+                                 HANDLE process, CLIENT_ID *id, CONTEXT *ctx, INITIAL_TEB *teb,
+                                 BOOLEAN suspended )
+ {
++    SYSCALL_NARROW_ARG( suspended );
++
+     FIXME( "%p %d %p %p %p %p %p %d, stub!\n",
+            handle, access, attr, process, id, ctx, teb, suspended );
+     return STATUS_NOT_IMPLEMENTED;
+@@ -2115,7 +2125,7 @@ static void set_native_thread_name( HAND
+     len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
+     nameA[len] = '\0';
+     pthread_setname_np( nameA );
+-#elif defined(__FreeBSD__)
++#elif defined(__FreeBSD__) || defined(__OpenBSD__)
+     unsigned int status;
+     char nameA[64];
+     int unix_pid, unix_tid, len;
+@@ -2142,9 +2152,13 @@ static void set_native_thread_name( HAND
+         return;
+     }
+ 
+-    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA), FALSE );
++    len = ntdll_wcstoumbs( name->Buffer, name->Length / sizeof(WCHAR), nameA, sizeof(nameA) - 1, FALSE );
+     nameA[len] = '\0';
++#ifdef __OpenBSD__
++    setthrname( unix_tid, nameA );
++#else
+     thr_set_name( unix_tid, nameA );
++#endif
+ #else
+     static int once;
+     if (!once++) FIXME("not implemented on this platform\n");

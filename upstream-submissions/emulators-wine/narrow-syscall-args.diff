@@ -1,0 +1,492 @@
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/alpc.c wine1119-new/dlls/ntdll/unix/alpc.c
+--- a/dlls/ntdll/unix/alpc.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/alpc.c	2026-10-21 10:29:25.619016292 +0200
+@@ -35,6 +35,8 @@
+                                          ALPC_PORT_MESSAGE *send_msg,
+                                          ALPC_MESSAGE_ATTRIBUTES *send_msg_attr, BOOLEAN accept )
+ {
++    SYSCALL_NARROW_ARG( accept );
++
+     FIXME( "%p, %p, %#x, %p, %p, %p, %p, %p, %d stub!\n", communication_port, connection_port,
+            (unsigned int)flags, obj_attr, port_attr, port_context, send_msg, send_msg_attr, accept );
+     return STATUS_NOT_IMPLEMENTED;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/debug.c wine1119-new/dlls/ntdll/unix/debug.c
+--- a/dlls/ntdll/unix/debug.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/debug.c	2026-10-21 10:29:25.619237772 +0200
+@@ -385,6 +385,8 @@
+  */
+ NTSTATUS WINAPI NtSetDebugFilterState( ULONG component_id, ULONG level, BOOLEAN state )
+ {
++    SYSCALL_NARROW_ARG( state );
++
+     FIXME( "component_id %#x, level %u, state %#x stub.\n", component_id, level, state );
+ 
+     return STATUS_SUCCESS;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/env.c wine1119-new/dlls/ntdll/unix/env.c
+--- a/dlls/ntdll/unix/env.c	2026-10-21 10:30:15.143867007 +0200
++++ b/dlls/ntdll/unix/env.c	2026-10-21 10:29:25.619810162 +0200
+@@ -2265,6 +2265,8 @@
+  */
+ NTSTATUS WINAPI NtQueryDefaultLocale( BOOLEAN user, LCID *lcid )
+ {
++    SYSCALL_NARROW_ARG( user );
++
+     *lcid = user ? user_lcid : system_lcid;
+     return STATUS_SUCCESS;
+ }
+@@ -2275,6 +2277,8 @@
+  */
+ NTSTATUS WINAPI NtSetDefaultLocale( BOOLEAN user, LCID lcid )
+ {
++    SYSCALL_NARROW_ARG( user );
++
+     if (user) user_lcid = lcid;
+     else system_lcid = lcid;
+     return STATUS_SUCCESS;
+@@ -2296,6 +2300,8 @@
+  */
+ NTSTATUS WINAPI NtSetDefaultUILanguage( LANGID lang )
+ {
++    SYSCALL_NARROW_ARG( lang );
++
+     user_ui_language = lang;
+     return STATUS_SUCCESS;
+ }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/file.c wine1119-new/dlls/ntdll/unix/file.c
+--- a/dlls/ntdll/unix/file.c	2026-10-21 10:30:15.217697928 +0200
++++ b/dlls/ntdll/unix/file.c	2026-10-21 10:29:25.620976846 +0200
+@@ -2935,6 +2935,9 @@
+     struct dir_data *data;
+     unsigned int status;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart_scan );
++
+     TRACE("(%p %p %p %p %p %p 0x%08x 0x%08x 0x%08x %s 0x%08x\n",
+           handle, event, apc_routine, apc_context, io, buffer,
+           length, info_class, single_entry, debugstr_us(mask),
+@@ -7068,6 +7071,9 @@
+     HANDLE handle;
+     BOOLEAN async;
+ 
++    SYSCALL_NARROW_ARG( dont_wait );
++    SYSCALL_NARROW_ARG( exclusive );
++
+     if (apc || io_status || key)
+     {
+         FIXME("Unimplemented yet parameter\n");
+@@ -7239,6 +7245,8 @@
+     unsigned int status;
+     ULONG size = max( 4096, buffer_size );
+ 
++    SYSCALL_NARROW_ARG( subtree );
++
+     TRACE( "%p %p %p %p %p %p %u %u %d\n",
+            handle, event, apc, apc_context, iosb, buffer, buffer_size, filter, subtree );
+ 
+@@ -7808,6 +7816,9 @@
+     int fd, needs_close;
+     NTSTATUS status;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart );
++
+     FIXME( "(%p,%p,%p,%d,%d,%p,%d,%p,%d) semi-stub\n",
+            handle, io, buffer, length, single_entry, list, list_len, index, restart );
+ 
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/registry.c wine1119-new/dlls/ntdll/unix/registry.c
+--- a/dlls/ntdll/unix/registry.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/registry.c	2026-10-21 10:29:25.622237119 +0200
+@@ -626,6 +626,9 @@
+ {
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     TRACE( "(%p,%u,%p,%p,%p,%p,%p,0x%08x, 0x%08x,%p,0x%08x,0x%08x)\n",
+            key, count, attr, event, apc, apc_context, io,
+            filter, async, buffer, length, subtree );
+@@ -667,6 +670,9 @@
+                                    IO_STATUS_BLOCK *io, ULONG filter, BOOLEAN subtree,
+                                    void *buffer, ULONG length, BOOLEAN async )
+ {
++    SYSCALL_NARROW_ARG( subtree );
++    SYSCALL_NARROW_ARG( async );
++
+     return NtNotifyChangeMultipleKeys( key, 0, NULL, event, apc, apc_context,
+                                        io, filter, subtree, buffer, length, async );
+ }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/security.c wine1119-new/dlls/ntdll/unix/security.c
+--- a/dlls/ntdll/unix/security.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/security.c	2026-10-21 10:29:25.622728010 +0200
+@@ -185,6 +185,8 @@
+  */
+ NTSTATUS WINAPI NtOpenThreadToken( HANDLE thread, DWORD access, BOOLEAN self, HANDLE *handle )
+ {
++    SYSCALL_NARROW_ARG( self );
++
+     return NtOpenThreadTokenEx( thread, access, self, 0, handle );
+ }
+ 
+@@ -197,6 +199,8 @@
+ {
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( self );
++
+     TRACE( "(%p,0x%08x,%u,0x%08x,%p)\n", thread, access, self, attributes, handle );
+ 
+     *handle = 0;
+@@ -227,6 +231,8 @@
+     data_size_t len;
+     struct object_attributes *objattr;
+ 
++    SYSCALL_NARROW_ARG( effective_only );
++
+     if (effective_only)
+         FIXME( "ignoring effective-only flag\n" );
+ 
+@@ -760,6 +766,8 @@
+ NTSTATUS WINAPI NtAdjustGroupsToken( HANDLE token, BOOLEAN reset, TOKEN_GROUPS *groups,
+                                      ULONG length, TOKEN_GROUPS *prev, ULONG *retlen )
+ {
++    SYSCALL_NARROW_ARG( reset );
++
+     FIXME( "%p %d %p %u %p %p\n", token, reset, groups, length, prev, retlen );
+     return STATUS_NOT_IMPLEMENTED;
+ }
+@@ -773,6 +781,8 @@
+ {
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( disable );
++
+     TRACE( "(%p,0x%08x,%p,0x%08x,%p,%p)\n", token, disable, privs, length, prev, retlen );
+ 
+     SERVER_START_REQ( adjust_token_privileges )
+@@ -956,6 +966,8 @@
+                                             ACCESS_MASK *access_granted, NTSTATUS *access_status,
+                                             BOOLEAN *onclose )
+ {
++    SYSCALL_NARROW_ARG( creation );
++
+     FIXME( "(%s, %p, %s, %p, 0x%08x, %p, %d, %p, %p, %p), stub\n",
+            debugstr_us(subsystem), handle, debugstr_us(typename), descr, access,
+            mapping, creation, access_granted, access_status, onclose );
+@@ -975,6 +987,8 @@
+                                                   ACCESS_MASK *access_granted, NTSTATUS *access_status,
+                                                   BOOLEAN *onclose )
+ {
++    SYSCALL_NARROW_ARG( creation );
++
+     FIXME( "(%s, %p, %s, %s, %p, 0x%08x, %u, %x, %p, %u, %p, %d, %p, %p, %p), stub\n",
+            debugstr_us(subsystem), handle, debugstr_us(typename), debugstr_us(objectname),
+            descr, access, audit_type, flags, obj_list, list_len,
+@@ -988,6 +1002,8 @@
+  */
+ NTSTATUS WINAPI NtCloseObjectAuditAlarm( UNICODE_STRING *subsystem, HANDLE handle, BOOLEAN onclose )
+ {
++    SYSCALL_NARROW_ARG( onclose );
++
+     FIXME( "%s %p %u: stub\n", debugstr_us(subsystem), handle, onclose );
+     return STATUS_NOT_IMPLEMENTED;
+ }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-new/dlls/ntdll/unix/server.c
+--- a/dlls/ntdll/unix/server.c	2026-10-21 10:30:15.236738912 +0200
++++ b/dlls/ntdll/unix/server.c	2026-10-21 10:29:25.623107794 +0200
+@@ -872,6 +872,8 @@
+  */
+ NTSTATUS WINAPI NtContinue( CONTEXT *context, BOOLEAN alertable )
+ {
++    SYSCALL_NARROW_ARG( alertable );
++
+     return NtContinueEx( context, ULongToPtr(alertable) );
+ }
+ 
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-new/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/sync.c	2026-10-21 10:29:33.413806965 +0200
+@@ -1098,6 +1098,8 @@
+     data_size_t len;
+     struct object_attributes *objattr;
+ 
++    SYSCALL_NARROW_ARG( state );
++
+     TRACE( "access %#x, name %s, type %u, state %u\n", access,
+            attr ? debugstr_us(attr->ObjectName) : "(null)", type, state );
+ 
+@@ -1289,6 +1291,8 @@
+     data_size_t len;
+     struct object_attributes *objattr;
+ 
++    SYSCALL_NARROW_ARG( owned );
++
+     TRACE( "access %#x, name %s, owned %u\n", access,
+            attr ? debugstr_us(attr->ObjectName) : "(null)", owned );
+ 
+@@ -1830,6 +1834,8 @@
+     unsigned int ret;
+     BOOL wait = TRUE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     for (;;)
+     {
+         SERVER_START_REQ( wait_debug_event )
+@@ -1931,9 +1937,13 @@
+                                         ULONG *context, ULONG *ret_size )
+ {
+     unsigned int status, i, count, total_len, pos, used_size, used_count, strpool_head;
+-    ULONG index = restart ? 0 : *context;
++    ULONG index;
+     struct directory_entry *entries;
+ 
++    SYSCALL_NARROW_ARG( single_entry );
++    SYSCALL_NARROW_ARG( restart );
++
++    index = restart ? 0 : *context;
+     if (!(entries = malloc( size ))) return STATUS_NO_MEMORY;
+ 
+     SERVER_START_REQ( get_directory_entries )
+@@ -2211,6 +2221,8 @@
+ {
+     unsigned int ret = STATUS_SUCCESS;
+ 
++    SYSCALL_NARROW_ARG( resume );
++
+     TRACE( "(%p,%p,%p,%p,%08x,0x%08x,%p)\n", handle, when, callback, arg, resume, period, state );
+ 
+     SERVER_START_REQ( set_timer )
+@@ -2310,6 +2322,8 @@
+     UINT i, flags = SELECT_INTERRUPTIBLE;
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     if (!count || count > MAXIMUM_WAIT_OBJECTS) return STATUS_INVALID_PARAMETER_1;
+     if (type != WaitAll && type != WaitAny) FIXME( "Unsupported wait type %u\n", type );
+ 
+@@ -2350,6 +2364,8 @@
+     UINT flags = SELECT_INTERRUPTIBLE;
+     unsigned int ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, alertable %u, timeout %s\n", handle, alertable, debugstr_timeout(timeout) );
+ 
+     if ((ret = inproc_wait( 1, &handle, WaitAny, alertable, timeout )) != STATUS_NOT_IMPLEMENTED)
+@@ -2377,6 +2393,8 @@
+     UINT flags = SELECT_INTERRUPTIBLE;
+     NTSTATUS ret;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "signal %p, wait %p, alertable %u, timeout %s\n", signal, wait, alertable, debugstr_timeout(timeout) );
+ 
+     if (!signal) return STATUS_INVALID_HANDLE;
+@@ -2423,6 +2441,8 @@
+ {
+     unsigned int status = STATUS_SUCCESS;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     /* if alertable, we need to query the server */
+     if (alertable)
+     {
+@@ -2553,6 +2573,8 @@
+ {
+     static BOOL has_request = FALSE;
+ 
++    SYSCALL_NARROW_ARG( set );
++
+     TRACE( "(%u,%u,%p), semi-stub!\n", res, set, current_res );
+ 
+     /* Wine has no support for anything other that 1 ms and does not keep of
+@@ -2681,6 +2703,8 @@
+     union select_op select_op;
+     UINT flags = SELECT_INTERRUPTIBLE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
+ 
+     if (!handle) handle = keyed_event;
+@@ -2702,6 +2726,8 @@
+     union select_op select_op;
+     UINT flags = SELECT_INTERRUPTIBLE;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
+ 
+     if (!handle) handle = keyed_event;
+@@ -2878,6 +2904,8 @@
+     unsigned int status;
+     ULONG i = 0;
+ 
++    SYSCALL_NARROW_ARG( alertable );
++
+     TRACE( "%p %p %u %p %p %u\n", handle, info, count, written, timeout, alertable );
+ 
+     if (!count) return STATUS_INVALID_PARAMETER;
+@@ -3118,6 +3146,8 @@
+ NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
+                                      LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
+ {
++    SYSCALL_NARROW_ARG( accept );
++
+     FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
+     return STATUS_NOT_IMPLEMENTED;
+ }
+@@ -3693,6 +3723,8 @@
+  */
+ NTSTATUS WINAPI NtCommitTransaction( HANDLE transaction, BOOLEAN wait )
+ {
++    SYSCALL_NARROW_ARG( wait );
++
+     FIXME( "%p, %d stub.\n", transaction, wait );
+ 
+     return STATUS_SUCCESS;
+@@ -3703,6 +3735,8 @@
+  */
+ NTSTATUS WINAPI NtRollbackTransaction( HANDLE transaction, BOOLEAN wait )
+ {
++    SYSCALL_NARROW_ARG( wait );
++
+     FIXME( "%p, %d stub.\n", transaction, wait );
+ 
+     return STATUS_ACCESS_VIOLATION;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-new/dlls/ntdll/unix/system.c
+--- a/dlls/ntdll/unix/system.c	2026-10-21 10:30:15.253397925 +0200
++++ b/dlls/ntdll/unix/system.c	2026-10-21 10:29:25.625304655 +0200
+@@ -4945,6 +4945,8 @@
+ NTSTATUS WINAPI NtInitiatePowerAction( POWER_ACTION action, SYSTEM_POWER_STATE state,
+                                        ULONG flags, BOOLEAN async )
+ {
++    SYSCALL_NARROW_ARG( async );
++
+     FIXME( "(%d,%d,0x%08x,%d),stub\n", action, state, flags, async );
+     return STATUS_NOT_IMPLEMENTED;
+ }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/thread.c wine1119-new/dlls/ntdll/unix/thread.c
+--- a/dlls/ntdll/unix/thread.c	2026-10-21 10:30:15.257697972 +0200
++++ b/dlls/ntdll/unix/thread.c	2026-10-21 10:29:25.625904434 +0200
+@@ -1384,6 +1384,8 @@
+                                 HANDLE process, CLIENT_ID *id, CONTEXT *ctx, INITIAL_TEB *teb,
+                                 BOOLEAN suspended )
+ {
++    SYSCALL_NARROW_ARG( suspended );
++
+     FIXME( "%p %d %p %p %p %p %p %d, stub!\n",
+            handle, access, attr, process, id, ctx, teb, suspended );
+     return STATUS_NOT_IMPLEMENTED;
+diff -ruN -x '*.orig' wine1119-base/dlls/win32u/class.c wine1119-new/dlls/win32u/class.c
+--- a/dlls/win32u/class.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/win32u/class.c	2026-10-21 10:29:25.626272821 +0200
+@@ -779,6 +779,8 @@
+     WCHAR buffer[MAX_ATOM_LEN + 1];
+     UINT size = 0;
+ 
++    SYSCALL_NARROW_ARG( atom );
++
+     if (atom < MAXINTATOM)
+     {
+         if (!atom)
+@@ -985,6 +987,8 @@
+  */
+ WORD WINAPI NtUserSetClassWord( HWND hwnd, INT offset, WORD newval )
+ {
++    SYSCALL_NARROW_ARG( newval );
++
+     return set_class_long_size( hwnd, offset, newval, sizeof(WORD), TRUE );
+ }
+ 
+diff -ruN -x '*.orig' wine1119-base/dlls/win32u/input.c wine1119-new/dlls/win32u/input.c
+--- a/dlls/win32u/input.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/win32u/input.c	2026-10-21 10:29:25.626942506 +0200
+@@ -1218,6 +1218,8 @@
+     const KBDTABLES *kbd_tables;
+     SHORT ret;
+ 
++    SYSCALL_NARROW_ARG( chr );
++
+     TRACE_(keyboard)( "chr %s, layout %p\n", debugstr_wn(&chr, 1), layout );
+ 
+     if ((ret = user_driver->pVkKeyScanEx( chr, layout )) != -256) return ret;
+diff -ruN -x '*.orig' wine1119-base/dlls/win32u/palette.c wine1119-new/dlls/win32u/palette.c
+--- a/dlls/win32u/palette.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/win32u/palette.c	2026-10-21 10:29:25.627308953 +0200
+@@ -512,6 +512,8 @@
+     HPALETTE ret = 0;
+     DC *dc;
+ 
++    SYSCALL_NARROW_ARG( bkg );
++
+     TRACE("%p %p\n", hdc, hpal );
+ 
+     if (!bkg && hpal != GetStockObject( DEFAULT_PALETTE ))
+@@ -626,6 +628,9 @@
+ LONG WINAPI NtGdiDoPalette( HGDIOBJ handle, WORD start, WORD count, void *entries,
+                             DWORD func, BOOL inbound )
+ {
++    SYSCALL_NARROW_ARG( start );
++    SYSCALL_NARROW_ARG( count );
++
+     switch (func)
+     {
+     case NtGdiAnimatePalette:
+diff -ruN -x '*.orig' wine1119-base/dlls/win32u/window.c wine1119-new/dlls/win32u/window.c
+--- a/dlls/win32u/window.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/win32u/window.c	2026-10-21 10:29:25.628407186 +0200
+@@ -1680,6 +1680,8 @@
+ {
+     BOOL ret;
+ 
++    SYSCALL_NARROW_ARG( fnid );
++
+     TRACE( "%p %x\n", hwnd, fnid );
+ 
+     if (!(fnid & 0x8000) || (fnid & 0x7fff) >= NTUSER_NB_PROCS)
+@@ -1704,6 +1706,8 @@
+  */
+ WORD WINAPI NtUserSetWindowWord( HWND hwnd, INT offset, WORD newval )
+ {
++    SYSCALL_NARROW_ARG( newval );
++
+     if (offset < 0 && offset != GWLP_USERDATA)
+     {
+         RtlSetLastWin32Error( ERROR_INVALID_INDEX );
+@@ -2668,6 +2672,8 @@
+ {
+     BOOL ret;
+ 
++    SYSCALL_NARROW_ARG( alpha );
++
+     TRACE( "(%p,%s,%d,%x)\n", hwnd, debugstr_color(key), alpha, flags );
+ 
+     SERVER_START_REQ( set_window_layered_info )
+diff -ruN -x '*.orig' wine1119-base/include/wine/unixlib.h wine1119-new/include/wine/unixlib.h
+--- a/include/wine/unixlib.h	2026-10-02 23:15:08.000000000 +0200
++++ b/include/wine/unixlib.h	2026-10-21 10:29:26.017621276 +0200
+@@ -276,6 +276,20 @@
+ #define wcstol(str,e,b)    ntdll_wcstol(str,e,b)
+ #define wcstoul(str,e,b)   ntdll_wcstoul(str,e,b)
+ 
++/* Syscall arguments narrower than 32 bits (BOOLEAN, WORD, ...) reach the
++ * Unix side with the undefined upper bits the Windows caller left in the
++ * register or stack slot, as the x86_64 syscall dispatcher moves full
++ * 64-bit values.  Clang compiles SysV functions assuming such arguments
++ * were zero- or sign-extended to 32 bits by the caller (GCC does not), so
++ * e.g. a BOOLEAN FALSE can test as TRUE.  Making the argument opaque to
++ * the compiler at function entry forces it to use only the declared
++ * width. */
++#if defined(__x86_64__) && defined(__clang__)
++#define SYSCALL_NARROW_ARG(arg) __asm__( "" : "+r" (arg) )
++#else
++#define SYSCALL_NARROW_ARG(arg) do { } while (0)
++#endif
++
+ #else /* WINE_UNIX_LIB */
+ 
+ extern unixlib_handle_t __wine_unixlib_handle;
