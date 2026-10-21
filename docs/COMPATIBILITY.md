@@ -214,3 +214,16 @@ arbitrary code.
 | Issue | Fix |
 |---|---|
 | Under cwm (OpenBSD base's default window manager) an idle wine program, explorer.exe and wineserver used most of a CPU. Proton's `set_focus()` calls `wait_grab_pointer()`, which grabs and ungrabs the pointer; the ungrab generates an EnterNotify (mode NotifyUngrab), cwm activates the client on every EnterNotify without checking the mode and sends WM_TAKE_FOCUS, which calls `set_focus()` again. Upstream wine-11.19 has no `wait_grab_pointer()` | winex11 ignores WM_TAKE_FOCUS when the window already is the foreground window and owns the X input focus (p7). cwm could also check `e->mode` in its EnterNotify handler (not changed; base system) |
+| The same mechanism with two Wine windows (e.g. two conhost windows): each WM_TAKE_FOCUS → `set_focus()` → `wait_grab_pointer()` grab/ungrab → EnterNotify → cwm activates the window under the pointer → WM_TAKE_FOCUS for the other window; `_NET_ACTIVE_WINDOW` changed every millisecond and the conhosts never got to serve their consoles | `wait_grab_pointer()` only grabs while a mouse button is pressed (`XQueryPointer`), since window-manager move/resize grabs need one (p8) |
+
+## Debugging tools on OpenBSD (session 3)
+
+- `winedbg` works now that debugger attach works (p6): `winedbg --command
+  "info process"`, then `printf 'attach 0x<pid>\nbt 0x<tid>\ndetach\n' |
+  winedbg` (per thread: `bt all` makes winedbg itself crash on some
+  frames).
+- lldb (base) needs a raised data-size limit (`ulimit -d $(ulimit -H -d)`)
+  or it aborts with "LLVM ERROR: out of memory"; it reads wine cores fine,
+  live attach to wine processes produced no output.
+- `ktrace -i -t S` records pinsyscalls(2) violations (the kernel's
+  explanation is otherwise only uprintf'd to the controlling tty).

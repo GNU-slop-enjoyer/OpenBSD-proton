@@ -1,14 +1,43 @@
-Proton's set_focus() grabs and ungrabs the pointer (wait_grab_pointer),
-which generates crossing events; cwm, OpenBSD's default window manager,
-activates a client on every EnterNotify regardless of its mode and sends
-WM_TAKE_FOCUS again: an endless loop (explorer.exe, the program and
-wineserver busy with an idle notepad).  Ignore WM_TAKE_FOCUS when the
-window already is the foreground window and has the X input focus.
+Focus loops with cwm, OpenBSD's default window manager, which activates a
+client on every EnterNotify regardless of its mode and then sends
+WM_TAKE_FOCUS:
+- Proton's wait_grab_pointer() grabs and ungrabs the pointer, generating
+  crossing events; only do it while a mouse button is pressed (window
+  manager move/resize grabs need one).  Two windows otherwise took the
+  focus from each other in a tight loop (_NET_ACTIVE_WINDOW changing every
+  millisecond; kernel32 console test children never exited).
+- Ignore WM_TAKE_FOCUS when the window already is the foreground window
+  and has the X input focus (idle programs kept explorer.exe and
+  wineserver busy).
 
 Index: dlls/winex11.drv/event.c
 --- dlls/winex11.drv/event.c.orig
 +++ dlls/winex11.drv/event.c
-@@ -810,6 +810,23 @@ static void handle_wm_protocols( HWND hw
+@@ -324,10 +324,23 @@ static Bool filter_event( Display *displ
+ static void wait_grab_pointer( Display *display )
+ {
+     RECT rect;
++    Window root, child;
++    int root_x, root_y, x, y;
++    unsigned int mask;
+ 
+     /* unnecessary on gamescope, windows cannot be moved with the mouse */
+     if (X11DRV_HasWindowManager( "steamcompmgr" )) return;
+ 
++    /* The grab below waits for window manager pointer grabs (moving or resizing
++     * a window with the mouse), which need a pressed button.  Grabbing and
++     * ungrabbing generates crossing events; window managers that activate a
++     * window on every EnterNotify (cwm) then send WM_TAKE_FOCUS again, and two
++     * windows can keep taking the focus from each other.  Skip it when no
++     * button is pressed. */
++    if (XQueryPointer( display, root_window, &root, &child, &root_x, &root_y, &x, &y, &mask ) &&
++        !(mask & (Button1Mask | Button2Mask | Button3Mask | Button4Mask | Button5Mask)))
++        return;
++
+     /* release cursor grab held by any Wine process */
+     NtUserGetClipCursor( &rect );
+     NtUserClipCursor( NULL );
+@@ -810,6 +823,23 @@ static void handle_wm_protocols( HWND hw
           */
          if (data->active_window && !strcmp( data->active_window, "Steam" )) event_time = CurrentTime;
  
