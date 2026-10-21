@@ -69,5 +69,10 @@ Status:
   server_init_process_done`, 9× in ntdll_test info). Second batch is in
   openbsd-fixes.diff and patches/ (58 files; the generated
   server_protocol.h, request_handlers.h and request_trace.h are patched
-  directly, as the port does not run make_requests); build pending.
-  The same changes pass tests/pe/sysinfo.c 24/24 in proton-wine.
+  directly, as the port does not run make_requests).
+- Full bundle built and tested as local wine-11.19p3 (2026-10-21): no
+  assertion in ntdll_test info, tests/pe/sysinfo.c 25/25, basic 6/6,
+  gui 5/5, ws2_32 protocol 19 -> 1 (a passing todo), ntdll exception
+  without the 40 %fs mismatches, ntdll om/virtual 0, kernel32 console 0.
+  Same 8 implicit-declaration warnings as the original port. Not sent
+  anywhere: sending needs the project owner's OK.
