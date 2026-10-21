@@ -77,3 +77,31 @@ commit and one port patch with a header.
 | `winegstreamer/media-converter` | `pthread_mutex_t` without `<pthread.h>` | include |
 | `winedmo` PCM byte-order BSF | defines an FFmpeg bitstream filter via FFmpeg-internal layouts; only works with libavcodec < 60 | public-API path for FFmpeg ≥ 6: null filter + in-place sample reversal |
 | `configure.ac` pcap check (11.0) | ignores `PCAP_CFLAGS/LIBS` | port adds libpcap dirs to `CPPFLAGS`/`LDFLAGS` |
+
+## Runtime bugs found by DXVK testing (session 2)
+
+Found by running a D3D11 probe (`tests/pe/d3d11probe.cpp`) with DXVK under
+proton-wine. The first two are wine bugs that upstream wine already fixed
+after 11.0; the third is a DXVK bug still present upstream.
+
+| Code | Problem | Fix |
+|---|---|---|
+| `winex11.drv/opengl.c` `X11DRV_WineGL_InitOpenglInfo` | kept `glGetString(GL_EXTENSIONS)` after destroying the GLX context; page fault in `x11drv_init_wgl_extensions` during `vkCreateInstance` | backport wine `f68eb9e43d` (strdup) |
+| `winex11.drv/display.c` `strip_driver_extra` | compacts modes in place with `memcpy` (overlapping). **OpenBSD libc's memcpy aborts on overlap** (syslog: "backwards memcpy"), glibc tolerates it; killed explorer.exe and the probe | backport wine `1897b27f25` (memmove) |
+| dxvk `src/util/util_singleton.h` | `acquire()` counted a user before constructing; when `DxvkInstance` threw (no Vulkan device) the next `acquire()` returned null → access violation in dxgi.dll | count only after construction (`ports/graphics/dxvk/patches`) |
+
+Finding the memcpy caller: `scripts/debug/memcpy-overlap.c` is an
+LD_PRELOAD shim that prints a module+offset backtrace for every overlapping
+`memcpy` and then copies with `memmove`. The abort itself leaves no stderr
+output; look in `/var/log/messages` for "backwards memcpy". Other
+overlapping copies in wine would fail the same way on OpenBSD, so the shim is
+worth running when a process dies with SIGABRT and no message.
+
+## Windows-target toolchain on OpenBSD (`ports/devel/mingw-w64`)
+
+| Issue | Detail | Handling |
+|---|---|---|
+| clang freestanding headers missing | `devel/llvm/22` lists `float.h inttypes.h iso646.h limits.h stdarg.h stdbool.h stddef.h stdint.h varargs.h` as `@comment` in `PLIST-main` (base libc provides them for OpenBSD targets). mingw-w64's `float.h` does `#include_next <float.h>` | private clang resource dir (`-resource-dir`) = installed one + those 9 headers from the same LLVM source tarball. (emulators/wine solves the same problem with a separate `wine-clang-pe-headers` distfile) |
+| compiler-rt builtins location | must not write into the llvm package's resource dir | installed into the private resource dir |
+| meson flag probing | meson's `get_supported_arguments()` adds `-Werror=unused-command-line-argument`; wrapper flags `-rtlib/-unwindlib/-stdlib` are unused when compiling, so **every probed flag was silently dropped** (DXVK built without `-DDXVK_WSI_WIN32`, `-msse2`, …, then failed at run time with "DXVK_WSI_DRIVER environment variable unset") | wrap them in `--start-no-unused-arguments … --end-no-unused-arguments` (as llvm-mingw does) |
+| `-lpthread` | meson `dependency('threads')` → mingw driver links `-lpthread` | build mingw-w64 winpthreads |

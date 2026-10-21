@@ -22,3 +22,25 @@ docs/BUILDING.md) and build it with the usual `make package`.
 
 Status: builds, packages and passes tests tiers 5–7 on OpenBSD 8.0 amd64
 (docs/TESTING.md). Build against the 8.0 release ports tree (docs/DECISIONS.md D5).
+Two patches are backports of later upstream wine fixes (headers name the
+commits).
+
+## devel/mingw-w64
+
+- Sources: mingw-w64 v13.0.0 release tarball (SourceForge; its detached
+  signature verifies against key CAF5641F74F7DFBA88AE205693BDB53CD4EBC740,
+  "JonY"), and `llvm-project-22.1.8.src.tar.xz` (same distfile and checksum
+  as `devel/llvm/22`).
+- Builds target libraries only; the compiler is the installed llvm-22
+  (docs/DECISIONS.md D8). Build logic: `files/mingw-w64-build.sh`.
+- License: mingw-w64 ZPL 2.1 / public domain, winpthreads MIT, LLVM
+  runtimes Apache 2.0 with LLVM exceptions.
+
+## graphics/dxvk
+
+- Source: `github.com/doitsujin/dxvk` commit `a6764047e5` (2.7.1+), the
+  `dxvk` submodule of Proton `proton-11.0-2e`, plus its submodules at their
+  pinned commits (see Makefile).
+- Patch: `src/util/util_singleton.h` — null instance after a failed first
+  construction (not fixed upstream as of 2026-10-21; candidate to send).
+- License: zlib (dxvk), MIT and LGPL 2.1+ for bundled headers.

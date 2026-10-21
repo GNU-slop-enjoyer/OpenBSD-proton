@@ -37,7 +37,16 @@ command and log. "Not tested" means exactly that.
 | 2026-10-20 | 1 | Port patch consistency: clean `make patch` in a separate WRKOBJDIR vs the tested tree (excluding build artifacts) | obsd-vm | **pass** (no differences) | session transcript |
 | 2026-10-20 | — | `scripts/vm/check-undefined.sh` on proton-wine and wine-11.19 | obsd-vm | **pass** (no unresolved strong symbols) | |
 | 2026-10-20 | 7 | `wine gui.exe` under Xvfb :1 (winex11.drv): RegisterClass, CreateWindowEx, WM_PAINT, GetPixel read-back, WM_TIMER loop | obsd-vm, wine-11.19p0 package | **pass 5/5, exit 0** | session transcript |
-| — | 8–11 | D3D (needs GPU), audio/input, Proton game, Steam | — | not tested | |
+| 2026-10-21 | 2 | mingw-w64 toolchain prototype: headers, UCRT CRT, compiler-rt builtins, winpthreads, libunwind/libc++abi/libc++ | obsd-vm | **pass** after 2 fixes (missing clang `float.h` etc.; meson unused-argument probes) | COMPATIBILITY.md |
+| 2026-10-21 | 2/3/4 | `devel/mingw-w64` port: build, fake, `make test`, package, `pkg_add` | obsd-vm | **pass** → `mingw-w64-13.0.0.tgz` (5237 PLIST entries) | `~builder/build-logs/devel_mingw-w64.log` |
+| 2026-10-21 | 6 | C++17 test (`ports/devel/mingw-w64/files/hello.cpp`: libc++ containers, `std::thread`, exception through libunwind/SEH) built with the installed toolchain, `-static` and with libc++.dll; run under proton-wine | obsd-vm | **pass** (both exit 0, "caught exc", n=42) | session transcript |
+| 2026-10-21 | 2 | DXVK 2.7.1 (`a6764047`) meson cross-build, first attempt | obsd-vm | **fail** — dxbc-spirv nested submodule missing; then `-lpthread` missing (winpthreads added) | `~builder/build-logs/dxvk.log` |
+| 2026-10-21 | 2/3 | `graphics/dxvk` port: build, package (d3d8, d3d9, d3d10core, d3d11, dxgi; imports only system DLLs) | obsd-vm | **pass** → `dxvk-2.7.1.20260720.tgz`; extracted sources identical to recursive git checkout | `~builder/build-logs/graphics_dxvk*.log` |
+| 2026-10-21 | 8 | `d3d11probe.exe` with wine's builtin d3d11/dxgi (wined3d) | obsd-vm, proton-wine | **expected failure**: CreateDXGIFactory1 and D3D11CreateDevice → 0x887a0004 (DXGI_ERROR_UNSUPPORTED), 0 adapters; no GPU | session transcript |
+| 2026-10-21 | 8 | `d3d11probe.exe` with DXVK (`WINEDLLOVERRIDES=d3d11,dxgi=n`), first runs | obsd-vm, proton-wine p0 | **fail → fixed**: (1) page fault in winex11 `x11drv_init_wgl_extensions` (GL_EXTENSIONS use-after-free); (2) SIGABRT, "backwards memcpy" (overlapping memcpy in `strip_driver_extra`); (3) DXVK null instance access violation (singleton) | COMPATIBILITY.md |
+| 2026-10-21 | 8 | `d3d11probe.exe` with packaged DXVK after fixes | obsd-vm, proton-wine-11.0.20261008p0, dxvk-2.7.1.20260720 | **pass (clean failure as expected without GPU)**: DXVK 2.7.1 loads, finds winevulkan, "Failed to create Vulkan instance"; both calls return E_FAIL, exit 1 | session transcript |
+| — | 8 | DXVK actually rendering (needs anv/radv on real hardware) | — | not tested | |
+| — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 
 ## Test programs
 
@@ -48,3 +57,11 @@ command and log. "Not tested" means exactly that.
 - `tests/pe/gui.c`: freestanding GUI PE (user32/gdi32): window creation,
   painting and pixel read-back, timer-driven message loop. Needs an X server:
   `Xvfb :1 -screen 0 1024x768x24 & DISPLAY=:1 wine gui.exe` (expect 5 `ok`).
+- `tests/pe/d3d11probe.cpp` (`make -C tests/pe d3d11`, needs
+  `devel/mingw-w64`): enumerates DXGI adapters and creates a D3D11 hardware
+  device, printing each HRESULT and which dxgi/d3d11 DLL was loaded. Exit 0
+  only if a device was created.
+- Wine conformance tests: `scripts/vm/winetest-build.sh` builds the
+  `*_test.exe` files from a port's build tree (copy reconfigured without
+  `--disable-tests`); `scripts/vm/winetest-run.sh` runs each test unit
+  separately with a timeout and writes `summary.txt`.

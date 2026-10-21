@@ -2,12 +2,15 @@
 # (any host; no mingw toolchain or Windows SDK required).
 #
 #   make            build basic.exe and gui.exe
+#   make d3d11      build d3d11probe.exe (needs a mingw-w64 C++ toolchain,
+#                   e.g. scripts/vm/mingw-toolchain.sh; set MINGW_CXX)
 #   make clean
 
 CLANG ?=	clang
 DLLTOOL ?=	llvm-dlltool
 LLD_LINK ?=	lld-link
 OUT ?=		../../build/tests/pe
+MINGW_CXX ?=	x86_64-w64-mingw32-clang++
 
 CFLAGS =	--target=x86_64-pc-windows-msvc -O2 -ffreestanding \
 		-fno-stack-protector -fno-builtin -mno-stack-arg-probe \
@@ -46,7 +49,14 @@ ${OUT}/gui.exe: ${OUT}/gui.obj ${OUT}/kernel32.lib ${OUT}/user32.lib ${OUT}/gdi3
 		${OUT}/gui.obj ${OUT}/kernel32.lib ${OUT}/user32.lib \
 		${OUT}/gdi32.lib
 
+d3d11: ${OUT}/d3d11probe.exe
+
+${OUT}/d3d11probe.exe: d3d11probe.cpp
+	mkdir -p ${OUT}
+	${MINGW_CXX} -std=c++17 -O2 -Wall -Wextra -Werror -static \
+		-o $@ d3d11probe.cpp -ld3d11 -ldxgi
+
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib
 
-.PHONY: all clean
+.PHONY: all clean d3d11

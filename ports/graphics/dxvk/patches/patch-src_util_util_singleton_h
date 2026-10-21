@@ -1,0 +1,23 @@
+Count a user only once the object exists.  If the constructor throws (e.g.
+DxvkInstance when no Vulkan device can be enumerated), the count stayed at
+1 with a null object, so the next acquire() returned null and the caller
+crashed: CreateDXGIFactory1() failed cleanly, then D3D11CreateDevice()
+dereferenced the null instance (read at 0x28 in dxgi.dll).  With this
+change every acquire() retries and fails with an error instead.
+Unchanged in upstream dxvk master as of 2026-10-21.
+
+Index: src/util/util_singleton.h
+--- src/util/util_singleton.h.orig
++++ src/util/util_singleton.h
+@@ -20,9 +20,10 @@ class Singleton {
+   Rc<T> acquire(Args... constantArgs) {
+     std::lock_guard lock(m_mutex);
+ 
+-    if (!(m_useCount++))
++    if (!m_useCount)
+       m_object = new T(constantArgs...);
+ 
++    m_useCount++;
+     return m_object;
+   }
+ 

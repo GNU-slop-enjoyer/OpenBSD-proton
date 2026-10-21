@@ -61,3 +61,23 @@ registry files, and the clang PE headers; the OpenBSD changes are ports
 patches exported from `work/proton-port/wine` (`scripts/make-port-patches.sh`);
 generated sources are produced in `post-patch` like Proton's own build.
 Nothing locally generated is used as a distfile.
+
+## D8 — Windows-target toolchain on the installed LLVM (2026-10-21)
+
+`devel/mingw-w64` does not build its own clang/lld (llvm-mingw does): the
+8.0 `llvm-22` package already has the X86 target, COFF lld, llvm-dlltool,
+llvm-windres and llvm-rc. The port only builds target libraries (mingw-w64
+headers/CRT/winpthreads; compiler-rt builtins, libunwind, libc++abi,
+libc++ from the same `llvm-project-22.1.8.src.tar.xz` distfile as
+`devel/llvm/22`) and installs `x86_64-w64-mingw32-*` wrappers. CRT default
+is UCRT (what DXVK/vkd3d-proton and current llvm-mingw use). Cost: the port
+must track `devel/llvm`'s major version (`LLVM_MAJOR`).
+
+## D9 — DXVK as `graphics/dxvk`, DLLs in lib/dxvk/x64 (2026-10-21)
+
+Distfiles are the pinned dxvk commit plus one GitHub archive per submodule
+commit (including dxbc-spirv's nested SPIRV-Headers), placed in
+`post-extract`. The extracted tree was verified identical to a recursive git
+checkout of the same commits. Only the DLLs are installed (no import
+libraries); installing them into a prefix is left to the user or a future
+launcher (ROADMAP M4), as Proton does per prefix.

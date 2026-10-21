@@ -34,3 +34,6 @@ __pycache__/
 
 # Local work trees (their changes are exported as ports patches)
 /work/proton-port/wine/
+
+# Locally fetched distfiles for port prototyping
+/distfiles/

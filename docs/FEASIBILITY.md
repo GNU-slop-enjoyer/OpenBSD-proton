@@ -85,19 +85,29 @@ builds with `--with-vulkan`. OpenBSD 8.0 xenocara ships Mesa Vulkan ICDs
 (anv), `intel_hasvk_icd` (older Intel), `radeon_icd` (radv). **No lavapipe**
 (software Vulkan) is shipped, and the QEMU VM has no GPU, so DXVK and
 vkd3d-proton runtime tests need real Intel/AMD hardware. NVIDIA: no driver.
+In the VM, `vkEnumeratePhysicalDevices` returns
+`VK_ERROR_INITIALIZATION_FAILED` (-3); DXVK reports "Failed to create Vulkan
+instance" and D3D11CreateDevice returns E_FAIL.
 
-## 4a. Building DXVK / vkd3d-proton — needs a Windows-target C++ toolchain
+## 4a. Building DXVK / vkd3d-proton — Windows-target C++ toolchain (done)
 
-DXVK (`upstream/Proton/dxvk` @ `a6764047`, meson cross files
-`build-win64.txt` → `x86_64-w64-mingw32-g++`) and vkd3d-proton are C++20
-Windows DLLs. OpenBSD ports has **no mingw-w64** (verified:
-no `*mingw*` port; wine's PE side uses plain clang with wine's own headers
-and CRT via `files/clang-pe`). Wine provides no C++ standard library for PE
-code. Building from source on OpenBSD therefore requires a new toolchain
-port in the style of llvm-mingw: mingw-w64 headers + CRT, compiler-rt
-builtins, libunwind, libc++abi and libc++ for `x86_64-w64-mingw32`, all
-built with the base/ports clang and lld. Fallback for runtime testing:
-upstream DXVK release DLLs (PE binaries are host-OS-independent).
+DXVK (`upstream/Proton/dxvk` @ `a6764047`, meson cross file
+`build-win64.txt` → `x86_64-w64-mingw32-g++`) and vkd3d-proton are C++
+Windows DLLs. OpenBSD ports had **no mingw-w64**, and wine provides no C++
+standard library for PE code. This is now solved by a new port,
+`ports/devel/mingw-w64` (session 2): the installed `devel/llvm/22` (clang,
+lld, llvm-dlltool, llvm-windres, all targets enabled) plus mingw-w64 v13.0.0
+headers, CRT (UCRT) and winpthreads, and LLVM 22.1.8's compiler-rt builtins,
+libunwind, libc++abi and libc++ built for `x86_64-w64-mingw32` — the
+llvm-mingw recipe without a second LLVM build. Two OpenBSD-specific points
+(COMPATIBILITY.md): the llvm package omits clang's freestanding headers
+(`float.h`, `stddef.h`, …), and the driver wrappers must not trip meson's
+`-Werror=unused-command-line-argument` flag probes.
+
+Result: DXVK 2.7.1 at Proton's commit builds natively on OpenBSD 8.0 as
+`ports/graphics/dxvk` and runs under proton-wine up to Vulkan instance
+creation, which fails only because the VM has no Vulkan device
+(TESTING.md). vkd3d-proton: not started; same toolchain.
 
 ## 5. Steam integration — not available
 

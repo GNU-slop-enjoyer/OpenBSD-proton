@@ -14,8 +14,9 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [x] Tier-7 test: graphical PE under Xvfb in the VM (`tests/pe/gui.c`)
 
 ## M2 — PE graphics layers as ports (Stage E, independent of Valve wine)
-- [ ] Prerequisite: Windows-target C++ toolchain port (mingw-w64 headers/CRT + compiler-rt, libunwind, libc++ for x86_64-w64-mingw32, built with clang/lld) — none in ports (FEASIBILITY.md §4a)
-- [ ] `emulators/dxvk` port at Proton's pinned `a6764047` (meson cross-build)
+- [x] Prerequisite: Windows-target C++ toolchain port `devel/mingw-w64` (mingw-w64 headers/CRT/winpthreads + compiler-rt, libunwind, libc++ for x86_64-w64-mingw32, on the installed llvm-22)
+- [x] `graphics/dxvk` port at Proton's pinned `a6764047` (meson cross-build); packaged; runs up to Vulkan instance creation in the VM
+- [ ] DXVK D3D11 rendering test on real hardware
 - [ ] `emulators/vkd3d-proton` port at `212991fc`
 - [ ] Vulkan on real hardware (radv/anv in 8.0 xenocara); no lavapipe in 8.0, no GPU in the VM
 
@@ -23,7 +24,7 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [x] Fetch `ValveSoftware/wine` at `e60892cc`; patch-check the OpenBSD tree against it
 - [x] Rebase OpenBSD patches onto Valve's fork (52 patches)
 - [x] `emulators/proton-wine` port; builds, packages, passes tiers 5–7
-- [ ] Broader application tests with Proton wine (real Windows programs, winetest subsets)
+- [ ] Broader application tests with Proton wine: winetest subsets (in progress, `scripts/vm/winetest-*.sh`), real Windows programs
 
 ## M4 — Launcher (Stage F/G)
 - [ ] `proton`-equivalent launcher: prefix setup, DXVK/vkd3d-proton installation, env vars

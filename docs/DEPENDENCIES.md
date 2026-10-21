@@ -31,11 +31,11 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 
 | Component | Submodule commit | OpenBSD status |
 |---|---|---|
-| wine (Valve fork) | `e60892cc` | not fetched; needs OpenBSD patch rebase |
-| dxvk | `a6764047` | fetched (shallow, with submodules); needs Windows-target C++ toolchain (no mingw-w64 in ports) |
-| vkd3d-proton | `212991fc` | not fetched; same toolchain need as dxvk |
+| wine (Valve fork) | `e60892cc` | **ported**: `emulators/proton-wine` (54 patches) |
+| dxvk | `a6764047` (2.7.1) | **ported**: `graphics/dxvk` (submodules as GitHub-archive distfiles, 1 patch); builds with `devel/mingw-w64`; runtime needs a Vulkan device |
+| vkd3d-proton | `212991fc` | not fetched; toolchain now available (`devel/mingw-w64`) |
 | vkd3d | `1128125f` | upstream vkd3d already bundled in wine |
-| Vulkan-Headers, SPIRV-Headers, glslang | — | pkg-8.0 (vulkan-headers 1.4.357.0); glslang to check |
+| Vulkan-Headers, SPIRV-Headers, glslang | — | dxvk uses its own pinned submodules; glslang-16.5.0 (pkg-8.0) provides `glslangValidator` |
 | gstreamer, ffmpeg, orc, dav1d, graphene, libsoup | — | use OpenBSD ports |
 | gst-plugins-rs | — | to check (rust in ports) |
 | dxvk-nvapi | `f9fdf268` | n/a (no NVIDIA driver) |
@@ -58,5 +58,6 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 | Item | Status |
 |---|---|
 | clang-22 PE (x86_64-windows, wine headers) | used by wine port (`files/clang-pe`) |
-| mingw-w64 headers/CRT + libc++/libunwind for x86_64-w64-mingw32 | **missing** in ports; needed for dxvk/vkd3d-proton source builds |
+| mingw-w64 headers/CRT + libc++/libunwind for x86_64-w64-mingw32 | **new port** `devel/mingw-w64` (mingw-w64 v13.0.0, LLVM 22.1.8 runtimes, uses installed llvm-22); packaged and tested |
+| meson 1.12.1, ninja 1.11.1, cmake 4.3.5 | pkg-8.0; build tools for dxvk and the toolchain |
 | Mesa Vulkan ICDs in 8.0 xenocara | anv, hasvk, radv present; no lavapipe |

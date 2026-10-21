@@ -18,7 +18,8 @@ root 'cat > /etc/installurl' <<'EOF'
 https://cdn.openbsd.org/pub/OpenBSD
 EOF
 
-# Build and library dependencies of emulators/wine (see docs/DEPENDENCIES.md).
+# Build and library dependencies of emulators/wine, plus the build tools of
+# devel/mingw-w64 and graphics/dxvk (see docs/DEPENDENCIES.md).
 root pkg_add -I \
 	autoconf-2.73 automake-1.18.1 bison nasm gmake git rsync-- \
 	llvm-22.1.8p10 \
@@ -27,6 +28,7 @@ root pkg_add -I \
 	gst-plugins-bad gst-plugins-ugly gst-libav \
 	gettext-tools libinotify libgphoto sane-backends-- libpcap \
 	pcsc-lite gnutls cups-libs dbus-1.16.2p1v0 libxkbcommon gtk+4-- samba-- \
+	cmake ninja meson glslang \
 	2>&1 | tee "$TOP/logs/vm-pkg_add.log"
 
 # Ports tree: the release's ports.tar.gz (matches the binary packages, see
