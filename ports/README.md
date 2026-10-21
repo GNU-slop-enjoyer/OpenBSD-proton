@@ -50,7 +50,11 @@ commits).
   (Noto fonts, patches, merge script) and its `fonts/liberation-fonts`
   submodule `4b01920461`. Build steps mirror Proton's Makefile.in
   (`files/build-fonts.sh`).
-- Not included: the CJK fonts (need afdko).
+- CJK fonts: Proton builds them from Source Han Sans CID sources with
+  afdko (not in ports); here from Adobe's prebuilt Source Han Sans 2.005R
+  region OTFs (`SourceHanSansSC/K-Regular`, the faces Proton's
+  FontMenuNameDB files name), renamed and converted with fontTools
+  (`files/cjk-fonts.py`); MS Gothic from Proton's Ume fonts and name patches.
 - License: SIL OFL 1.1 (fonts); merge.py Apache 2.0/MIT.
 
 ## devel/mingw-w64

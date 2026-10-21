@@ -154,9 +154,9 @@ before `wineboot -i`, like Proton. With that, both dwrite units pass
 (0 failures). Proton's own fonts are packaged as `fonts/proton-fonts` (built like
 Proton's Makefile: fontforge renames Liberation to Arial/Times New
 Roman/Georgia/Courier New, `merge.py` with fontTools builds Microsoft Sans
-Serif and Nirmala UI from Noto); the launcher links them too. Still
-missing: Proton's CJK fonts (msyh, simsun, malgun from Source Han Sans,
-msgothic from Ume), which need Adobe's afdko (not in ports).
+Serif and Nirmala UI from Noto); the launcher links them too. Proton's CJK fonts
+(msyh, simsun, malgun, msgothic) are built with fontTools from Adobe's
+prebuilt Source Han Sans OTFs and Proton's Ume fonts instead of afdko.
 
 ## Sockets (found by `ws2_32_test sock`, session 2)
 
