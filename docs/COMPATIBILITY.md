@@ -208,3 +208,9 @@ arbitrary code.
 | per-CPU and idle times (SystemProcessorPerformanceInformation, GetSystemTimes) were wine's fake counters 1/2/3, so CPU-load calculations were meaningless | `kern.cpustats` per online CPU (`KERN_CPUSTATS`, skips offline/SMT-disabled CPUs) at `kern.clockrate` stathz; kernel time includes idle as on Windows |
 | wineserver writes PEB `BeingDebugged` with ptrace(); OpenBSD only allows ptrace on descendants (`kern.global_ptrace=0`) and clients are not the server's children. DebugActiveProcess failed with access denied (no AeDebug/winedbg attach), and **every process created with DEBUG_PROCESS aborted** at startup (`assert(!status)` after init_process_done) | new system APC `APC_WRITE_MEMORY` (≤ 8 bytes inline): the target writes its own memory; queued while the target is suspended (debugger attach/detach), so it runs before it resumes. init_process_done returns `debugged` and the new process sets its own flag (an APC there would race the client's check). Tested: `tests/pe/sysinfo.c` 24/24 |
 | libgcrypt missing from configure: Proton's bcrypt does ECDH secret agreement with gcrypt (`STATUS_NOT_IMPLEMENTED` otherwise) | port dependency security/libgcrypt + `--with-gcrypt` (p6) |
+
+## Window manager focus loop (session 3)
+
+| Issue | Fix |
+|---|---|
+| Under cwm (OpenBSD base's default window manager) an idle wine program, explorer.exe and wineserver used most of a CPU. Proton's `set_focus()` calls `wait_grab_pointer()`, which grabs and ungrabs the pointer; the ungrab generates an EnterNotify (mode NotifyUngrab), cwm activates the client on every EnterNotify without checking the mode and sends WM_TAKE_FOCUS, which calls `set_focus()` again. Upstream wine-11.19 has no `wait_grab_pointer()` | winex11 ignores WM_TAKE_FOCUS when the window already is the foreground window and owns the X input focus (p7). cwm could also check `e->mode` in its EnterNotify handler (not changed; base system) |

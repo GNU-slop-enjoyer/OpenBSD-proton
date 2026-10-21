@@ -1,0 +1,34 @@
+Proton's set_focus() grabs and ungrabs the pointer (wait_grab_pointer),
+which generates crossing events; cwm, OpenBSD's default window manager,
+activates a client on every EnterNotify regardless of its mode and sends
+WM_TAKE_FOCUS again: an endless loop (explorer.exe, the program and
+wineserver busy with an idle notepad).  Ignore WM_TAKE_FOCUS when the
+window already is the foreground window and has the X input focus.
+
+Index: dlls/winex11.drv/event.c
+--- dlls/winex11.drv/event.c.orig
++++ dlls/winex11.drv/event.c
+@@ -810,6 +810,23 @@ static void handle_wm_protocols( HWND hw
+          */
+         if (data->active_window && !strcmp( data->active_window, "Steam" )) event_time = CurrentTime;
+ 
++        if (hwnd == foreground)
++        {
++            Window focus;
++            int revert;
++
++            /* Nothing to do if the window already has the X input focus.  set_focus()
++             * grabs and ungrabs the pointer, which generates crossing events; window
++             * managers that focus on every EnterNotify regardless of its mode (cwm)
++             * answer with another WM_TAKE_FOCUS, an endless loop. */
++            XGetInputFocus( event->display, &focus, &revert );
++            if (focus == event->window)
++            {
++                TRACE( "window %p/%lx already has the input focus\n", hwnd, event->window );
++                return;
++            }
++        }
++
+         if (can_activate_window(hwnd))
+         {
+             set_focus( event->display, hwnd, event_time );
