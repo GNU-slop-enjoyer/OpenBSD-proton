@@ -3,58 +3,58 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
-## 2026-10-21 — Session 3: Linux reference, OpenBSD-only failures fixed
+## 2026-10-21 — Session 3: Linux reference, OpenBSD-only failures, cwm focus loops
 
-### What changed
-- **Linux reference** (`scripts/linux-ref-build.sh`): pristine Proton wine
-  e60892cc built on the Gentoo host; the VM's winetest binaries run there
-  without a display (`docs/results/winetest-linux-ref.txt`). Units that
-  fail identically on Linux are Proton/environment behaviour; the rest
-  were investigated:
-  - bcrypt ECDH (27 failures): libgcrypt was not a port dependency, so
-    configure never saw it → p6 depends on security/libgcrypt, devel/gmp.
-  - ntdll info (26 → 4, Linux 4): memory counters and CPU times now come
-    from sysctl(2) (ntdll + wineserver).
-  - Debugging: wineserver wrote PEB BeingDebugged with ptrace(), which
-    OpenBSD refuses for non-children → DebugActiveProcess failed and every
-    DEBUG_PROCESS child aborted. New APC_WRITE_MEMORY + init_process_done
-    "debugged" field (protocol 932).
-  - ws2_32 protocol (19 → 1, the 1 is a todo that passes): local host name
-    resolved from interface addresses when the system cannot (p7, not
-    packaged yet).
-  - kernel32 loader / ucrtbase file / ntdll directory: test-setup
-    artefacts of the p1 run (mscoree disabled, C locale).
-  - ws2_32 afd (2): OpenBSD poll semantics (OOB still flagged after
-    reading the OOB byte; CONNECT with RESET) — left as is.
-- `tests/pe/sysinfo.c`: 25/25 with the installed p6 package.
-- emulators/wine-11.19 bundle: first batch tested as wine-11.19p2 (change
-  notifications, virtual, om, sock fixed); the run also proved the
-  debugger abort on stock 11.19. Second batch (sysctl info, debugger,
-  getaddrinfo) ported, 58 patches; **not built yet**.
-- VM: libgcrypt/libgpg-error/dwz installed by hand — the ports framework's
-  own pkg_add of freshly built dependencies fails with "Can't find …tgz"
-  (unsigned); install them with `doas env TRUSTED_PKG_PATH=… pkg_add` and
+### What changed (proton-wine p6 → p9)
+- **Linux reference** (`scripts/linux-ref-build.sh`, `docs/results/winetest-linux-ref.txt`):
+  pristine Proton wine on the Gentoo host with the VM's test binaries;
+  units failing identically there are Proton/environment behaviour.
+  `scripts/winetest-compare.sh` compares summary files unit by unit.
+- p6: bcrypt ECDH via libgcrypt (port dependency was missing); process
+  memory counters and CPU times from sysctl(2); debugging without ptrace
+  (APC_WRITE_MEMORY + init_process_done "debugged": DebugActiveProcess
+  failed and every DEBUG_PROCESS child aborted). `tests/pe/sysinfo.c` 25/25.
+- p7: ws2_32 resolves the local host name from interface addresses (no
+  nss-myhostname); WM_TAKE_FOCUS ignored when the window already has the
+  focus (idle programs burned CPU under cwm).
+- p8: `wait_grab_pointer()` only grabs while a mouse button is pressed
+  (two windows ping-ponged the focus through cwm; kernel32 console children
+  never exited); bcrypt calls gcry_check_version().
+- p9 (sources, not packaged yet): real %fs selector in contexts.
+- Audio: `tests/pe/audio.c` (WASAPI via winepulse into a PulseAudio null
+  sink) 15/15 — the 100 Hz clock is not a problem.
+- Winetest (fresh prefix, Mono/Gecko, UTF-8, cwm): p1 201/252 → p7 226/278
+  → **p8 230/278** (`docs/results/winetest-proton-wine-p8.txt`).
+- emulators/wine-11.19 bundle (`upstream-submissions/emulators-wine`, 58
+  patches): wine-11.19p2 (first batch) tested; second batch (sysctl info,
+  debugger, getaddrinfo, %fs) is being built as local wine-11.19p3.
+
+### Environment notes
+- The ports framework's own install of freshly built dependencies fails
+  ("Can't find …tgz", unsigned); install them with
+  `doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add <pkg>` and
   restart the build.
+- Debugging: winedbg attach works (per thread `bt 0x<tid>`); lldb needs
+  `ulimit -d $(ulimit -H -d)`; `ktrace -i -t S` for pinsyscalls.
+- pulseaudio for tests: `pulseaudio -n --daemonize=yes --exit-idle-time=-1
+  --load=module-null-sink --load=module-native-protocol-unix`.
+- Keep cwm running on :1 for realistic GUI runs (`DISPLAY=:1 cwm &`).
 
-### Files
-ports/emulators/proton-wine (Makefile p7, patches), tests/pe/sysinfo.c,
-scripts/linux-ref-build.sh, docs/results/, upstream-submissions/emulators-wine,
-docs/TESTING.md, docs/COMPATIBILITY.md. Work tree commits 6ca8385, de69b83.
-
-### State / next actions
-1. Full winetest with installed p6 running in the VM:
-   `~builder/winetest/out-p6` (log `run-p6.log`); compare with
-   `docs/results/winetest-linux-ref.txt` and out-p1.
-2. Build emulators/wine-11.19 with the 58-patch bundle (copy
-   `upstream-submissions/emulators-wine/patches` over the port's patches,
-   keep `patches.orig`, REVISION 3 locally), test ntdll info (no more
-   assertion), sysinfo, ws2_32 protocol; restore the port dir.
-3. Package proton-wine p7 (`make clean=fake; make package` is enough: only
-   ws2_32 changed) and retest ws2_32.
-4. Audio: build mmdevapi/dsound/winmm tests (`winetest-build.sh`), run
-   with pulseaudio and a null sink.
-5. kernel32 process unit times out (also with p5 and an older prefix
-   setup): investigate.
+### Open / next actions
+1. Finish the wine-11.19p3 build (log `~builder/build-logs/emulators_wine.log`),
+   install, test ntdll info (no assertion), `sysinfo.exe`, ws2_32 protocol,
+   ntdll exception; then restore `/usr/ports/emulators/wine`
+   (`patches.orig` → `patches`, REVISION 0 from upstream/ports).
+2. Package proton-wine p9 (`make clean=fake; make package` after syncing
+   the port; ntdll.so already rebuilt in the build tree).
+3. Rare silent SIGABRT in kernel32 console runs (2 in ~20): probably a
+   pinsyscalls violation from the %gs fault path; catch with `ktrace -t S`.
+4. Directory reparse points (symlinks/junctions to directories) are not
+   emulated (regular files only); kernel32 file crash.
+5. ws2_32: no dual-stack sockets on OpenBSD (IPV6_V6ONLY fixed), missing
+   IP_PKTINFO-style options — platform limitations, documented.
+6. Real-hardware DXVK/vkd3d-proton test (user), sending the bundle
+   upstream (needs the user's OK).
 
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
 
