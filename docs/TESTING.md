@@ -49,6 +49,12 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 2/3/4 | `graphics/vkd3d-proton` port (`212991fc`): build with mingw widl and glslang, package, `pkg_add` → d3d12.dll, d3d12core.dll (system imports only); build id = pinned commit | obsd-vm | **pass**; extracted sources identical to recursive git checkout (minus unused SPIRV-Cross/Tools) | `~builder/build-logs/graphics_vkd3d-proton.log` |
 | 2026-10-21 | 1 | proton-wine patch consistency with the 2 new patches: clean `make WRKOBJDIR=… patch` (54 patches) vs tested tree | obsd-vm | **pass** (only build-generated `configure`, `config.*`, `po/*` differ) | session transcript |
 | 2026-10-21 | 8 | `d3d12probe.exe`: wine builtin d3d12 → 0x80004005; vkd3d-proton + DXVK dxgi (`d3d12,d3d12core,dxgi=n`) → vkd3d-proton loads, "Failed to create DXGI factory", 0x80004005, exit 1 | obsd-vm | **pass (clean failure as expected without GPU)** | session transcript |
+| 2026-10-21 | 4/5 | `emulators/proton-openbsd` launcher: package/install; first run hung in `wineboot -i` (Wine Mono/Gecko download dialog, control.exe/appwiz waiting for input) | obsd-vm | **fail → fixed** (mscoree/mshtml disabled during wineboot only) | session transcript |
+| 2026-10-21 | 5–7 | `proton-openbsd prefix` (28 s), `run basic.exe` 6/6, `run gui.exe` 5/5 in a fresh prefix | obsd-vm | **pass** | session transcript |
+| 2026-10-21 | 5 | launcher DLL selection: system32 d3d9/d3d10core/d3d11/dxgi = DXVK, d3d12/d3d12core = vkd3d-proton, d3d8 = wine; `PROTON_USE_WINED3D=1` restores wine's builtins, unsetting it reinstalls DXVK; `PROTON_LOG=1` log shows `dxgi.dll … native` and DXVK 2.7.1 | obsd-vm | **pass** | session transcript |
+| 2026-10-21 | 8 | `d3d11probe.exe` with wined3d (proton-wine p0, after the two winex11 fixes): 1 adapter (wined3d's stand-in description for llvmpipe), **D3D11 device at feature level 11_0** | obsd-vm | **pass** | session transcript |
+| 2026-10-21 | 8 | `d3d11render.exe` with wined3d (OpenGL → Mesa llvmpipe, Xvfb): runtime HLSL compile, offscreen draw, read-back of red/blue pixels | obsd-vm | **pass 8/8** — first rendered Direct3D output | session transcript |
+| 2026-10-21 | 8 | `d3d11render.exe` with DXVK | obsd-vm | **fail (expected)**: D3D11CreateDevice 0x80004005, no Vulkan device | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 
@@ -65,6 +71,10 @@ command and log. "Not tested" means exactly that.
   `devel/mingw-w64`): enumerates DXGI adapters and creates a D3D11 hardware
   device, printing each HRESULT and which dxgi/d3d11 DLL was loaded. Exit 0
   only if a device was created.
+- `tests/pe/d3d11render.cpp`: offscreen D3D11 rendering check (TAP, 8
+  checks): clear to blue, draw a red triangle over the left half with HLSL
+  compiled at run time by `d3dcompiler_47`, read pixels back. Works without
+  a window, so it runs under Xvfb with wined3d + llvmpipe.
 - `tests/pe/d3d12probe.cpp`: D3D12CreateDevice at feature level 11_0;
   prints the HRESULT and the d3d12/d3d12core/dxgi DLLs in use.
 - Wine conformance tests: `scripts/vm/winetest-build.sh` builds the

@@ -25,6 +25,15 @@ Status: builds, packages and passes tests tiers 5–7 on OpenBSD 8.0 amd64
 Two patches are backports of later upstream wine fixes (headers name the
 commits).
 
+## emulators/proton-openbsd
+
+- Project-owned launcher (`files/proton-openbsd.sh`, man page
+  `files/proton-openbsd.1`); no distfiles. Mirrors the DLL setup and
+  `PROTON_*` switches of upstream Proton's `proton` script
+  (proton-11.0-2e) without Steam. RUN_DEPENDS on proton-wine, dxvk and
+  vkd3d-proton.
+- License: LGPL 2.1 or later.
+
 ## devel/mingw-w64
 
 - Sources: mingw-w64 v13.0.0 release tarball (SourceForge; its detached

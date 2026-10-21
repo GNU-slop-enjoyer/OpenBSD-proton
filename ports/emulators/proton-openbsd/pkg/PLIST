@@ -1,0 +1,2 @@
+bin/proton-openbsd
+@man man/man1/proton-openbsd.1

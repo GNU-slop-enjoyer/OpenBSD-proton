@@ -109,7 +109,13 @@ Using DXVK in a prefix:
     # Direct3D 12: also copy /usr/local/lib/vkd3d-proton/x64/*.dll and add
     # d3d12,d3d12core=n
 
-## 8. Wine conformance tests (in the guest)
+## 8. Launcher
+
+    cd /usr/ports/emulators/proton-openbsd && make package
+    doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add proton-openbsd
+    proton-openbsd run program.exe        # see proton-openbsd(1)
+
+## 9. Wine conformance tests (in the guest)
 
     ./winetest-build.sh /home/pobj/proton-wine-11.0.20261008 \
         dlls/ntdll/tests/x86_64-windows/ntdll_test.exe ...

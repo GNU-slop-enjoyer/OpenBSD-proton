@@ -1,0 +1,9 @@
+proton-openbsd sets up a wine prefix and runs 64-bit Windows programs in
+it the way Valve's Proton does: with Proton's fork of wine
+(emulators/proton-wine), DXVK for Direct3D 9/10/11 and vkd3d-proton for
+Direct3D 12, installed into the prefix and enabled with DLL overrides.
+Proton's PROTON_USE_WINED3D, PROTON_DXVK_D3D8, PROTON_NO_D3D10/11 and
+PROTON_LOG switches are supported.
+
+Steam integration is not provided. Graphics acceleration needs a Vulkan
+driver (Mesa anv or radv on Intel or AMD GPUs).

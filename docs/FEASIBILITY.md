@@ -85,6 +85,10 @@ builds with `--with-vulkan`. OpenBSD 8.0 xenocara ships Mesa Vulkan ICDs
 (anv), `intel_hasvk_icd` (older Intel), `radeon_icd` (radv). **No lavapipe**
 (software Vulkan) is shipped, and the QEMU VM has no GPU, so DXVK and
 vkd3d-proton runtime tests need real Intel/AMD hardware. NVIDIA: no driver.
+Without Vulkan, wine's own wined3d (Direct3D on OpenGL) works: in the VM a
+D3D11 device (feature level 11_0) renders correctly through Mesa's
+software llvmpipe under Xvfb (`tests/pe/d3d11render.cpp`), so the D3D
+code paths of proton-wine are testable without a GPU; performance is not.
 In the VM, `vkEnumeratePhysicalDevices` returns
 `VK_ERROR_INITIALIZATION_FAILED` (-3); DXVK reports "Failed to create Vulkan
 instance" and D3D11CreateDevice returns E_FAIL.

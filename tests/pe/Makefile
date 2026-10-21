@@ -2,7 +2,7 @@
 # (any host; no mingw toolchain or Windows SDK required).
 #
 #   make            build basic.exe and gui.exe
-#   make d3d        build d3d11probe.exe and d3d12probe.exe (needs a
+#   make d3d        build d3d11probe.exe, d3d12probe.exe, d3d11render.exe (needs a
 #                   mingw-w64 C++ toolchain, e.g. devel/mingw-w64; set
 #                   MINGW_CXX)
 #   make clean
@@ -50,7 +50,7 @@ ${OUT}/gui.exe: ${OUT}/gui.obj ${OUT}/kernel32.lib ${OUT}/user32.lib ${OUT}/gdi3
 		${OUT}/gui.obj ${OUT}/kernel32.lib ${OUT}/user32.lib \
 		${OUT}/gdi32.lib
 
-d3d: ${OUT}/d3d11probe.exe ${OUT}/d3d12probe.exe
+d3d: ${OUT}/d3d11probe.exe ${OUT}/d3d12probe.exe ${OUT}/d3d11render.exe
 
 ${OUT}/d3d11probe.exe: d3d11probe.cpp
 	mkdir -p ${OUT}
@@ -61,6 +61,11 @@ ${OUT}/d3d12probe.exe: d3d12probe.cpp
 	mkdir -p ${OUT}
 	${MINGW_CXX} -std=c++17 -O2 -Wall -Wextra -Werror -static \
 		-o $@ d3d12probe.cpp -ld3d12
+
+${OUT}/d3d11render.exe: d3d11render.cpp
+	mkdir -p ${OUT}
+	${MINGW_CXX} -std=c++17 -O2 -Wall -Wextra -Werror -static \
+		-o $@ d3d11render.cpp -ld3d11
 
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib

@@ -27,7 +27,8 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [ ] Broader application tests with Proton wine: winetest subsets (in progress, `scripts/vm/winetest-*.sh`), real Windows programs
 
 ## M4 — Launcher (Stage F/G)
-- [ ] `proton`-equivalent launcher: prefix setup, DXVK/vkd3d-proton installation, env vars
+- [x] `proton`-equivalent launcher `emulators/proton-openbsd` (`proton-openbsd run …`): prefix setup, DXVK/vkd3d-proton installation, `PROTON_USE_WINED3D`/`PROTON_DXVK_D3D8`/`PROTON_NO_D3D10/11`/`PROTON_LOG`
+- [ ] wine-mono / wine-gecko for .NET and mshtml apps (not packaged; prefixes are created without them)
 - [ ] Application test matrix (TESTING.md)
 
 ## Out of scope unless something changes
