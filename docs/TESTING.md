@@ -88,8 +88,9 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 5 | ntdll info with the p6 sources | obsd-vm | 26 → 4 failures (Linux reference: 4) | session transcript |
 | 2026-10-21 | 5 | wine-11.19p2 (OpenBSD port + narrow args + change/socket/reconnect/signal-context fixes, `upstream-submissions/emulators-wine/patches`): ntdll change 9 / kernel32 change 9 failures (were 26/82), ntdll virtual 0, ntdll om 0, kernel32 virtual completes (was a timeout; 32 VirtualProtect/WRITECOPY failures remain), ws2_32 sock completes (was a timeout; 203 failures of 2.67 M) | obsd-vm | **pass for the fixed causes** | `~builder/winetest/out-1119c` |
 | 2026-10-21 | 5 | wine-11.19p2 ntdll info: `assertion "!status" failed ... server_init_process_done` ×9 — every process started under a debugger aborts at startup on stock OpenBSD wine (the server's ptrace write of PEB BeingDebugged fails) | obsd-vm | **fail**; fix ported to the 11.19 bundle (APC_WRITE_MEMORY / init_process_done "debugged"), build pending | `~builder/winetest/out-1119c` |
+| 2026-10-21 | 9 | `tests/pe/audio.c` (new): WASAPI shared-mode 440 Hz playback, 3 s polled + 3 s event-driven, through winepulse.drv into PulseAudio 17.0 with a null sink (`pulseaudio -n --load=module-null-sink --load=module-native-protocol-unix`), proton-wine p6, VM under load (winetest running) | obsd-vm | **pass 15/15**: audio clock ratio 0.997/0.998 of real time, 0 underruns, event mode 299 events, mean interval 10.0 ms (period 10 ms), max 20 ms — the 100 Hz scheduler clock does not starve winepulse's timer, so NethIafin's winepulse catch-up patch is not needed for Proton's winepulse. Audible output on real hardware (sndio) not tested | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
-| — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
+| — | 9–11 | audio on real hardware (sndio sink), game controllers, Proton game, Steam | — | not tested | |
 
 ## Test programs
 
@@ -115,6 +116,9 @@ command and log. "Not tested" means exactly that.
   busy work, a debugged child (DEBUG_ONLY_THIS_PROCESS) and
   DebugActiveProcess attach/break-in/detach; the children report
   IsDebuggerPresent through their exit code. TAP, exit code = failures.
+- `tests/pe/audio.c` (`make -C tests/pe audio`): WASAPI playback in polled
+  and event-driven mode; checks the audio clock rate, underruns and event
+  spacing. Needs a PulseAudio server (a null sink is enough).
 - Wine conformance tests: `scripts/vm/winetest-build.sh` builds the
   `*_test.exe` files from a port's build tree (copy reconfigured without
   `--disable-tests`); `scripts/vm/winetest-run.sh` runs each test unit

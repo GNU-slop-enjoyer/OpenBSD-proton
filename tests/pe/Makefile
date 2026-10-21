@@ -7,6 +7,7 @@
 #                   MINGW_CXX)
 #   make sysinfo  build sysinfo.exe (process memory/CPU information and
 #                 debugger attach; needs a mingw-w64 C toolchain, MINGW_CC)
+#   make audio    build audio.exe (WASAPI playback timing; mingw-w64 C)
 #   make clean
 
 CLANG ?=	clang
@@ -76,7 +77,13 @@ ${OUT}/sysinfo.exe: sysinfo.c
 	mkdir -p ${OUT}
 	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ sysinfo.c -lpsapi
 
+audio: ${OUT}/audio.exe
+
+${OUT}/audio.exe: audio.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ audio.c -lole32 -lm
+
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib
 
-.PHONY: all clean d3d sysinfo
+.PHONY: all audio clean d3d sysinfo

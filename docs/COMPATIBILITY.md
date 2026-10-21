@@ -35,6 +35,9 @@ Resolved so far:
 Judged not applicable (needs runtime confirmation):
 - winepulse timer patch: Valve schedules periods from PulseAudio
   `pa_context_rttime_restart` absolute deadlines; `pulse_timer_loop` is a no-op.
+  Confirmed at run time (session 3, `tests/pe/audio.c`): event-driven
+  WASAPI gets an event every 10.0 ms on average (max 20 ms), the audio
+  clock runs at 0.997–0.998 of real time, no underruns.
 - winex11 keyboard `keyc2scan()` OpenBSD keycodes: no such function in the 11.0 tree.
 
 Ported by hand (work tree commits `43e3b82`, `3247aa5`; **not compiled yet**):
