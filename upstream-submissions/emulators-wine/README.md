@@ -57,6 +57,8 @@ field replace the server's ptrace() write of PEB BeingDebugged.
 ws2_32 resolves the local host name (and "") from the interface addresses
 when the system cannot (no nss-myhostname on OpenBSD; ws2_32 protocol test
 19 -> 1 failures in proton-wine).
+Exception/thread contexts report the real %fs selector (OpenBSD's
+sigcontext has none; 40 ntdll exception test failures in proton-wine).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):

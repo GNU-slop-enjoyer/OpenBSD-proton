@@ -101,6 +101,39 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
      }
      SERVER_END_REQ;
  
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/signal_x86_64.c wine1119-chg/dlls/ntdll/unix/signal_x86_64.c
+--- a/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 10:30:15.241031287 +0200
++++ b/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 22:11:46.263123983 +0200
+@@ -969,7 +969,13 @@
+     context->R15    = R15_sig(sigcontext);
+     context->Rip    = RIP_sig(sigcontext);
+     context->SegCs  = CS_sig(sigcontext);
++#ifdef __OpenBSD__
++    /* the kernel does not save segment selectors in the sigcontext (sc_fs is
++     * 0); the handler runs with the interrupted code's %fs */
++    __asm__( "movw %%fs,%0" : "=r" (context->SegFs) );
++#else
+     context->SegFs  = FS_sig(sigcontext);
++#endif
+     context->EFlags = EFL_sig(sigcontext);
+     context->SegDs  = ds64_sel;
+     context->SegEs  = ds64_sel;
+@@ -2905,6 +2911,15 @@
+         }
+         else thread_data->fs = fs32_sel;
+     }
++#ifdef __OpenBSD__
++    else
++    {
++        /* reported as SegFs in contexts taken from syscall frames */
++        USHORT fs;
++        __asm__( "movw %%fs,%0" : "=r" (fs) );
++        thread_data->fs = fs;
++    }
++#endif
+     thread_data->frame_size = frame_size;
+     return STATUS_SUCCESS;
+ }
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/ntdll/unix/socket.c
 --- a/dlls/ntdll/unix/socket.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/dlls/ntdll/unix/socket.c	2026-10-21 15:25:01.476518939 +0200
