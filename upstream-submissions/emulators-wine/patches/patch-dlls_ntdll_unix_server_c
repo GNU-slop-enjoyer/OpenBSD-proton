@@ -21,7 +21,7 @@ the size to record the base used for Unix calls.
 Index: dlls/ntdll/unix/server.c
 --- dlls/ntdll/unix/server.c.orig
 +++ dlls/ntdll/unix/server.c
-@@ -705,6 +705,40 @@ static void invoke_system_apc( const uni
+@@ -705,6 +705,57 @@ static void invoke_system_apc( const uni
          if (!self) NtClose( wine_server_ptr_handle(call->dup_handle.dst_process) );
          break;
      }
@@ -44,12 +44,29 @@ Index: dlls/ntdll/unix/server.c
 +                                                             &view_size, ViewShare, 0, PAGE_READWRITE );
 +            if (!result->copy_memory.status)
 +            {
-+                /* each stores a local copy that will keep page protections and fault if needed */
-+                /* direction? */
-+                result->copy_memory.status = NtReadVirtualMemory( NtCurrentProcess(),
-+                                     call->copy_memory.write ? view : addr,
-+                                     call->copy_memory.write ? addr : view,
-+                                     size, &copied );
++                /* This may run in a signal handler that interrupted Windows
++                 * code, where a fault cannot be caught (nested exception on
++                 * the signal stack), so check page protections instead of
++                 * relying on fault handling; inaccessible ranges are a
++                 * normal case (STATUS_PARTIAL_COPY). */
++                if (call->copy_memory.write)
++                {
++                    /* like Windows, report how much was written before the
++                     * first inaccessible page */
++                    while (copied < size)
++                    {
++                        SIZE_T block = min( size - copied, page_size - (((UINT_PTR)addr + copied) & (page_size - 1)) );
++                        if (virtual_uninterrupted_write_memory( (char *)addr + copied,
++                                                                (char *)view + copied, block ))
++                            break;
++                        copied += block;
++                    }
++                    if (copied != size) result->copy_memory.status = STATUS_PARTIAL_COPY;
++                }
++                else if (virtual_uninterrupted_read_memory( addr, view, size ) != size)
++                    result->copy_memory.status = STATUS_PARTIAL_COPY;  /* nothing copied */
++                else
++                    copied = size;
 +                NtUnmapViewOfSection( NtCurrentProcess(), view );
 +            }
 +        }
@@ -62,7 +79,7 @@ Index: dlls/ntdll/unix/server.c
      default:
          server_protocol_error( "get_apc_request: bad type %d\n", call->type );
          break;
-@@ -838,6 +872,8 @@ unsigned int server_wait_for_object( HAN
+@@ -838,6 +889,8 @@ unsigned int server_wait_for_object( HAN
   */
  NTSTATUS WINAPI NtContinue( CONTEXT *context, BOOLEAN alertable )
  {
@@ -71,7 +88,7 @@ Index: dlls/ntdll/unix/server.c
      return NtContinueEx( context, ULongToPtr(alertable) );
  }
  
-@@ -1546,6 +1582,8 @@ static int get_unix_tid(void)
+@@ -1546,6 +1599,8 @@ static int get_unix_tid(void)
      ret = lwpid;
  #elif defined(__DragonFly__)
      ret = lwp_gettid();
@@ -80,7 +97,7 @@ Index: dlls/ntdll/unix/server.c
  #endif
      return ret;
  }
-@@ -1641,9 +1679,18 @@ void server_init_process( struct thread_
+@@ -1641,9 +1696,18 @@ void server_init_process( struct thread_
      sigaddset( &server_block_set, SIGHUP );
      sigaddset( &server_block_set, SIGQUIT );
      sigaddset( &server_block_set, SIGUSR1 );
@@ -100,7 +117,7 @@ Index: dlls/ntdll/unix/server.c
  
      /* receive the first thread request fd on the main socket */
      data->request_fd = wine_server_receive_fd( &version );
-@@ -1680,6 +1727,9 @@ void server_init_process( struct thread_
+@@ -1680,6 +1744,9 @@ void server_init_process( struct thread_
      {
          req->unix_pid    = getpid();
          req->unix_tid    = get_unix_tid();
@@ -110,7 +127,7 @@ Index: dlls/ntdll/unix/server.c
          req->reply_fd    = reply_pipe;
          req->wait_fd     = data->wait_fd[1];
          req->debug_level = (TRACE_ON(server) != 0);
-@@ -1706,6 +1756,18 @@ void server_init_process( struct thread_
+@@ -1706,6 +1773,18 @@ void server_init_process( struct thread_
  
      if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
  
@@ -129,7 +146,7 @@ Index: dlls/ntdll/unix/server.c
      if (!supported_machines_count)
          fatal_error( "'%s' is a 64-bit installation, it cannot be used with a 32-bit wineserver.\n",
                       config_dir );
-@@ -1757,6 +1819,16 @@ void server_init_process_done(void)
+@@ -1757,6 +1836,16 @@ void server_init_process_done(void)
      signal_init_process( data->teb );
      init_teb_data( data );
  
@@ -146,7 +163,7 @@ Index: dlls/ntdll/unix/server.c
      /* Signal the parent process to continue */
      SERVER_START_REQ( init_process_done )
      {
-@@ -1781,14 +1853,26 @@ void server_init_thread( struct thread_d
+@@ -1781,14 +1870,26 @@ void server_init_thread( struct thread_d
  {
      int reply_pipe;
      TEB64 *teb64 = get_teb64( data->teb );

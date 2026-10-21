@@ -5,7 +5,7 @@ removing a reparse point so it does not become ordinary file contents.
 Index: server/fd.c
 --- server/fd.c.orig
 +++ server/fd.c
-@@ -591,7 +591,15 @@ static inline void set_fd_epoll_events( struct fd *fd,
+@@ -591,7 +591,15 @@ static inline void set_fd_epoll_events(
      if (kqueue_fd == -1) return;
  
      EV_SET( &ev[0], fd->unix_fd, EVFILT_READ, 0, NOTE_LOWAT, 1, (void *)(long)user );
@@ -21,7 +21,7 @@ Index: server/fd.c
  
      if (events == -1)  /* stop waiting on this fd completely */
      {
-@@ -2361,6 +2369,7 @@ static void unmount_device( struct fd *device_fd )
+@@ -2361,6 +2369,7 @@ static void unmount_device( struct fd *d
  
  #define XATTR_REPARSE XATTR_USER_PREFIX "WINEREPARSE"
  
@@ -29,7 +29,7 @@ Index: server/fd.c
  static int xattr_fset( int filedes, const char *name, const void *value, size_t size )
  {
  #ifdef HAVE_SYS_XATTR_H
-@@ -2410,12 +2419,18 @@ static int xattr_fremove( int filedes, const char *nam
+@@ -2410,12 +2419,18 @@ static int xattr_fremove( int filedes, c
      return -1;
  #endif
  }
@@ -48,7 +48,7 @@ Index: server/fd.c
  
      if (!fd->unix_name)
      {
-@@ -2435,7 +2450,39 @@ static void set_reparse_point( struct fd *fd, struct a
+@@ -2435,7 +2450,39 @@ static void set_reparse_point( struct fd
          return;
      }
  
@@ -88,7 +88,7 @@ Index: server/fd.c
      {
          file_set_error();
          return;
-@@ -2467,6 +2514,9 @@ static void get_reparse_point( struct fd *fd, struct a
+@@ -2467,6 +2514,9 @@ static void get_reparse_point( struct fd
       * Linux won't return any data if the size is too small */
      char buffer[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
      int ret;
@@ -98,7 +98,7 @@ Index: server/fd.c
  
      if (!fd->unix_name)
      {
-@@ -2492,7 +2542,31 @@ static void get_reparse_point( struct fd *fd, struct a
+@@ -2492,7 +2542,31 @@ static void get_reparse_point( struct fd
          return;
      }
  
@@ -130,7 +130,7 @@ Index: server/fd.c
      if (ret >= 0)
      {
          if (ret > get_reply_max_size())
-@@ -2547,6 +2621,20 @@ static void delete_reparse_point( struct fd *fd, struc
+@@ -2547,6 +2621,20 @@ static void delete_reparse_point( struct
      memcpy( base_name, fd->unix_name, len - 1 );
      base_name[len - 1] = 0;
  
@@ -151,7 +151,7 @@ Index: server/fd.c
      if (rename( fd->unix_name, base_name ) < 0)
      {
          file_set_error();
-@@ -2557,7 +2645,9 @@ static void delete_reparse_point( struct fd *fd, struc
+@@ -2557,7 +2645,9 @@ static void delete_reparse_point( struct
      free( fd->unix_name );
      fd->closed->unix_name = fd->unix_name = base_name;
  
@@ -161,3 +161,16 @@ Index: server/fd.c
  }
  
  /* default get_file_info() routine */
+@@ -3041,6 +3131,12 @@ DECL_HANDLER(get_handle_unix_name)
+     }
+ }
+ 
++/* the Unix name an fd was opened with (NULL if unknown) */
++const char *get_fd_unix_name( struct fd *fd )
++{
++    return fd->unix_name;
++}
++
+ /* get a Unix fd to access a file */
+ DECL_HANDLER(get_handle_fd)
+ {

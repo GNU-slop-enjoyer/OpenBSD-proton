@@ -1,0 +1,169 @@
+Index: dlls/ntdll/unix/socket.c
+--- dlls/ntdll/unix/socket.c.orig
++++ dlls/ntdll/unix/socket.c
+@@ -1584,6 +1584,55 @@ static NTSTATUS do_getsockopt( HANDLE ha
+ }
+ 
+ 
++/* Boolean options: BSD kernels return the option's flag bit (e.g. SO_OOBINLINE
++ * gives 0x100, TCP_NODELAY 4) where Windows and Linux return 1, and a short
++ * buffer would then truncate a set option to 0.  Read the full int and
++ * return 0 or 1 in as many bytes as requested. */
++static NTSTATUS do_getsockopt_bool( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                    int option, void *out_buffer, ULONG out_size )
++{
++    NTSTATUS status;
++    int value = 0;
++
++    if ((status = do_getsockopt( handle, NULL, level, option, &value, sizeof(value) )))
++        return status;
++    value = !!value;
++    out_size = min( out_size, sizeof(value) );
++    memcpy( out_buffer, &value, out_size );
++    if (io)
++    {
++        io->Status = STATUS_SUCCESS;
++        io->Information = out_size;
++    }
++    return STATUS_SUCCESS;
++}
++
++
++#ifdef __OpenBSD__
++/* OpenBSD's IP_MULTICAST_TTL and IP_MULTICAST_LOOP are u_char options and
++ * setting them with any other length fails with EINVAL; Windows uses an int
++ * (or as many bytes as given). */
++static NTSTATUS do_getsockopt_uchar( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                     int option, void *out_buffer, ULONG out_size )
++{
++    NTSTATUS status;
++    unsigned char byte = 0;
++    int value;
++
++    if ((status = do_getsockopt( handle, NULL, level, option, &byte, sizeof(byte) )))
++        return status;
++    value = byte;
++    out_size = min( out_size, sizeof(value) );
++    memcpy( out_buffer, &value, out_size );
++    if (io)
++    {
++        io->Status = STATUS_SUCCESS;
++        io->Information = out_size;
++    }
++    return STATUS_SUCCESS;
++}
++#endif
++
+ static NTSTATUS do_setsockopt( HANDLE handle, IO_STATUS_BLOCK *io, int level,
+                                int option, const void *optval, socklen_t optlen )
+ {
+@@ -1601,6 +1650,21 @@ static NTSTATUS do_setsockopt( HANDLE ha
+     return STATUS_SUCCESS;
+ }
+ 
++#ifdef __OpenBSD__
++static NTSTATUS do_setsockopt_uchar( HANDLE handle, IO_STATUS_BLOCK *io, int level,
++                                     int option, const void *optval, socklen_t optlen )
++{
++    unsigned char byte;
++    int value = 0;
++
++    if (!optlen) return do_setsockopt( handle, io, level, option, optval, optlen );
++    memcpy( &value, optval, min( optlen, sizeof(value) ) );
++    if (value < 0 || value > 0xff) return STATUS_INVALID_PARAMETER;
++    byte = value;
++    return do_setsockopt( handle, io, level, option, &byte, sizeof(byte) );
++}
++#endif
++
+ 
+ static int get_sock_type( HANDLE handle )
+ {
+@@ -2075,13 +2139,13 @@ NTSTATUS sock_ioctl( HANDLE handle, HAND
+             break;
+ 
+         case IOCTL_AFD_WINE_GET_SO_BROADCAST:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_BROADCAST, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_BROADCAST, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_BROADCAST:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_BROADCAST, in_buffer, in_size );
+ 
+         case IOCTL_AFD_WINE_GET_SO_KEEPALIVE:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_KEEPALIVE, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_KEEPALIVE, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_KEEPALIVE:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_KEEPALIVE, in_buffer, in_size );
+@@ -2099,7 +2163,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HAND
+             ret = getsockopt( fd, SOL_SOCKET, SO_LINGER, &unix_linger, &len );
+             if (!ret)
+             {
+-                ws_linger->l_onoff = unix_linger.l_onoff;
++                ws_linger->l_onoff = !!unix_linger.l_onoff;  /* BSD returns SO_LINGER */
+                 ws_linger->l_linger = unix_linger.l_linger;
+                 io->Status = STATUS_SUCCESS;
+                 io->Information = sizeof(*ws_linger);
+@@ -2121,7 +2185,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HAND
+         }
+ 
+         case IOCTL_AFD_WINE_GET_SO_OOBINLINE:
+-            return do_getsockopt( handle, io, SOL_SOCKET, SO_OOBINLINE, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, SOL_SOCKET, SO_OOBINLINE, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_SO_OOBINLINE:
+             return do_setsockopt( handle, io, SOL_SOCKET, SO_OOBINLINE, in_buffer, in_size );
+@@ -2234,28 +2298,44 @@ NTSTATUS sock_ioctl( HANDLE handle, HAND
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_getsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, out_buffer, out_size );
++#else
+             return do_getsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, out_buffer, out_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_SET_IP_MULTICAST_LOOP:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_setsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, in_buffer, in_size );
++#else
+             return do_setsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_LOOP, in_buffer, in_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_GET_IP_MULTICAST_TTL:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_getsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, out_buffer, out_size );
++#else
+             return do_getsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, out_buffer, out_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_SET_IP_MULTICAST_TTL:
+         {
+             int sock_type = get_sock_type( handle );
+             if (sock_type != SOCK_DGRAM && sock_type != SOCK_RAW) return STATUS_INVALID_PARAMETER;
++#ifdef __OpenBSD__
++            return do_setsockopt_uchar( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, in_buffer, in_size );
++#else
+             return do_setsockopt( handle, io, IPPROTO_IP, IP_MULTICAST_TTL, in_buffer, in_size );
++#endif
+         }
+ 
+         case IOCTL_AFD_WINE_GET_IP_OPTIONS:
+@@ -2633,7 +2713,7 @@ NTSTATUS sock_ioctl( HANDLE handle, HAND
+ #endif
+ 
+         case IOCTL_AFD_WINE_GET_TCP_NODELAY:
+-            return do_getsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, out_buffer, out_size );
++            return do_getsockopt_bool( handle, io, IPPROTO_TCP, TCP_NODELAY, out_buffer, out_size );
+ 
+         case IOCTL_AFD_WINE_SET_TCP_NODELAY:
+             return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
