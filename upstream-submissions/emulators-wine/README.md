@@ -35,7 +35,7 @@ ntdll/win32u syscalls with BOOLEAN/WORD/BYTE/WCHAR/ATOM/LANGID arguments
 
 - Applied to and tested in `emulators/proton-wine` (wine 11.0 base):
   codegen checked (`testb %r8b,%r8b`), `kernel32_test drive` passes, full
-  winetest re-run (docs/TESTING.md).
+  winetest re-run with no new failures attributable to it (docs/TESTING.md).
 - For wine-11.19: generated and applied to the patched source tree only;
   **not yet built or tested** with emulators/wine. Do not send before that
   (docs/PROGRESS.md tracks it).

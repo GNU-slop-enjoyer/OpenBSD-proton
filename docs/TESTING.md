@@ -59,6 +59,9 @@ command and log. "Not tested" means exactly that.
 | 2026-10-21 | 5 | proton-only `kernel32 drive` (endless `NtQueryDirectoryObject(restart=garbage)` loop) | obsd-vm | **fail → fixed in p1** (narrow syscall arguments, COMPATIBILITY.md); now 130 tests, 0 failures | session transcript |
 | 2026-10-21 | 5 | proton-only `kernel32 path` (17 failures) | obsd-vm | **expected**: Proton adds `C:\Program Files (x86)\Steam` to the DLL search path | `kernel32_test.path.log` |
 | 2026-10-21 | 4/5 | proton-wine p1 package + launcher p0 (mscoree/mshtml always disabled): existing prefix updated after upgrade without the Mono/Gecko dialog; `run basic.exe` 6/6; `d3d11render` 8/8 with wined3d | obsd-vm | **pass** | session transcript |
+| 2026-10-21 | 5–8 | Winetest re-run with proton-wine p1 in a prefix created with mscoree/mshtml disabled (the p0 and first 11.19 runs used prefixes whose wineboot had blocked on the Mono/Gecko dialog — e.g. no ComSpec) | obsd-vm | 201 pass / 40 fail / 7 crash / 4 timeout (p0: 187/47/12/6); 17 units newly pass (prefix completeness + narrow-arg fix, e.g. msvcrt misc, ntdll reg, ole32 marshal, rpcrt4 rpc); ntdll om 17 → 6 failures | `~builder/winetest/out-p1` |
+| 2026-10-21 | 7 | p1 new failures `dwrite font`/`analyzer` (crash): Tahoma missing for DirectWrite in a complete Proton-wine prefix | obsd-vm | **fail → fixed in the launcher** (fonts linked into `C:\windows\Fonts` before first boot): both pass, 0 failures; `shlwapi string` "crash" did not reproduce (34755 tests, 0 failures) | COMPATIBILITY.md |
+| 2026-10-21 | 5–7 | proton-openbsd 0.1p1 in a fresh prefix: basic 6/6, gui 5/5, d3d11render (wined3d) 8/8, Tahoma registered | obsd-vm | **pass** | session transcript |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio/input, Proton game, Steam | — | not tested | |
 

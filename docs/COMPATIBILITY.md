@@ -131,3 +131,26 @@ every implemented syscall with such arguments: 44 functions, 51 arguments
 in ntdll and win32u, listed by `scripts/debug/narrow-syscall-args.py`
 (it parses the definitions of all 738 implemented syscalls in the
 generated syscall tables). Candidate for emulators/wine and upstream wine.
+
+## Fonts in Proton prefixes (found by winetest, session 2)
+
+Valve's wine.inf registers the system fonts as plain file names
+(`"Tahoma (TrueType)"="tahoma.ttf"`, `"Arial (TrueType)"="arial.ttf"`,
+…), i.e. files in `C:\windows\Fonts`, which Proton's `proton` script fills
+with symlinks to its own fonts and to wine's (`create_fonts_symlinks()`).
+DirectWrite builds its system collection only from that registry key. In
+a prefix made by plain `wineboot`, the files are missing: `dwrite_test
+font`/`analyzer` fail (DWRITE_E_NOFONT for Tahoma) and crash; upstream
+wine-11.19 passes in the same situation because its wine.inf does not
+register them this way.
+
+Ordering matters: if the links are created *after* the first boot,
+win32u has already recorded wine's fonts as "External Fonts" (data
+directory paths); on the next start it finds them in `C:\windows\Fonts`,
+treats the external entries as stale and deletes them — together with the
+wine.inf values of the same name — so Tahoma vanishes from the registry.
+`proton-openbsd` therefore links wine's fonts (and `PROTON_FONTS_DIR`)
+before `wineboot -i`, like Proton. With that, both dwrite units pass
+(0 failures). Proton's own fonts (Liberation/Noto/Source Han rebuilt as
+Arial, Times New Roman, MS YaHei, SimSun, …) are not packaged yet; their
+registry entries point to missing files, which DirectWrite skips.

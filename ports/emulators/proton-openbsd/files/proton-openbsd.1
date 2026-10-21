@@ -30,6 +30,11 @@ DXVK provides d3d9, d3d10core, d3d11 and dxgi; vkd3d-proton provides d3d12
 and d3d12core; wine's own wined3d provides d3d8.
 If DXVK or vkd3d-proton is not installed, wine's builtin DLLs are used for
 those APIs.
+Wine's fonts, and any fonts in
+.Ev PROTON_FONTS_DIR ,
+are linked into the prefix's
+.Pa drive_c/windows/Fonts ,
+where Proton's wine expects the system fonts.
 .Pp
 The commands are:
 .Bl -tag -width Ds
@@ -53,6 +58,15 @@ Defaults to
 .Ev WINEPREFIX
 if set, otherwise
 .Pa ${XDG_DATA_HOME:-~/.local/share}/proton-openbsd/pfx .
+.It Ev PROTON_FONTS_DIR
+Additional directory of
+.Pa .ttf
+and
+.Pa .ttc
+fonts to link into the prefix, such as the fonts Proton builds from
+Liberation, Noto and Source Han.
+Defaults to
+.Pa ${TRUEPREFIX}/share/proton-fonts .
 .It Ev PROTON_USE_WINED3D
 If non-zero, use wine's OpenGL-based wined3d for all Direct3D versions
 instead of DXVK and vkd3d-proton.

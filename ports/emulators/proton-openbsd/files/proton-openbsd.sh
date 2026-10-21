@@ -77,6 +77,12 @@ install_dll() {
 setup_prefix() {
 	if [ ! -d "$SYS32" ]; then
 		mkdir -p "$WINEPREFIX" || die "cannot create $WINEPREFIX"
+		# Fonts must be in place before the first boot: fonts that
+		# win32u first finds in wine's data directory are recorded as
+		# "external", and when they later appear in C:\windows\Fonts
+		# their registry entries (and wine.inf's) are deleted, which
+		# leaves DirectWrite without them.
+		link_fonts
 		# see the mscoree/mshtml note at set_overrides()
 		WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" \
 		    "$WINE" wineboot -i || die "wineboot failed for $WINEPREFIX"
@@ -86,6 +92,26 @@ setup_prefix() {
 	for f in $vkd3d_dlls; do install_dll "$f" "$VKD3DDIR"; done
 	for f in $builtin_dlls; do
 		install_dll "$f" "$WINEDIR/lib/wine/x86_64-windows"
+	done
+	link_fonts
+}
+
+# Valve's wine registers the system fonts as files in C:\windows\Fonts and
+# Proton symlinks them there (create_fonts_symlinks()); without them
+# DirectWrite finds no fonts at all, not even Tahoma.  Like Proton, only
+# symlinks are replaced, never files the user put there.
+FONTDIRS="$WINEDIR/share/wine/fonts ${PROTON_FONTS_DIR:-$PREFIX_DIR/share/proton-fonts}"
+link_fonts() {
+	fonts=$WINEPREFIX/drive_c/windows/Fonts
+	mkdir -p "$fonts"
+	for d in $FONTDIRS; do
+		for f in "$d"/*.ttf "$d"/*.ttc; do
+			[ -f "$f" ] || continue
+			l=$fonts/${f##*/}
+			if [ -L "$l" ] || [ ! -e "$l" ]; then
+				ln -sf "$f" "$l"
+			fi
+		done
 	done
 }
 
