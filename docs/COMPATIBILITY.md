@@ -176,3 +176,11 @@ stubs). They cannot run on OpenBSD (FEASIBILITY.md §2); wine only reports
 "failed to load …syswow64\ntdll.dll c0000135". `proton-openbsd run` now
 detects 32-bit PE files and says so. Workarounds: the program's `.msi`
 (64-bit msiexec works, e.g. 7-Zip) or a portable archive (Notepad++).
+
+## Directory change notifications and file names (session 2)
+
+| Issue | Fix |
+|---|---|
+| wineserver needs a path to add an inotify watch; `get_path_from_fd()` only knew `/proc/self/fd` and `F_GETPATH`, neither exists on OpenBSD, so no watch was ever added (ReadDirectoryChangesW / FindFirstChangeNotification never fired) | fall back to the name the server opened the directory with (`get_fd_unix_name()`); kernel32 change 82 → 9 failures. Applies to emulators/wine too |
+| non-ASCII Windows file names are unrepresentable in the C locale (US-ASCII), the default on OpenBSD | proton-openbsd sets `LC_CTYPE=C.UTF-8` if the locale is not UTF-8 |
+| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) are only partly emulated without extended attributes | known limitation (~100 ntdll file test failures) |

@@ -43,6 +43,17 @@ die() {
 [ $# -ge 1 ] || usage
 [ -x "$WINE" ] || die "$WINE not found (pkg_add proton-wine)"
 
+# Windows file names are Unicode; wine maps them to Unix names in the
+# locale's codeset, and in the default C locale (US-ASCII) any non-ASCII
+# name is unrepresentable.  Use UTF-8 for LC_CTYPE unless it already is.
+if [ "$(locale charmap 2>/dev/null)" != UTF-8 ]; then
+	if [ -n "${LC_ALL:-}" ]; then
+		export LC_ALL=C.UTF-8
+	else
+		export LC_CTYPE=C.UTF-8
+	fi
+fi
+
 export WINEPREFIX=${PROTON_PREFIX:-${WINEPREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/proton-openbsd/pfx}}
 SYS32=$WINEPREFIX/drive_c/windows/system32
 

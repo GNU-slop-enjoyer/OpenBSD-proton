@@ -85,6 +85,17 @@ in
 Any other non-zero value is added to the default
 .Ev WINEDEBUG
 channels.
+.It Ev LC_CTYPE
+If the current locale's character set is not UTF-8,
+.Nm
+sets
+.Ev LC_CTYPE
+to
+.Dq C.UTF-8
+(or
+.Ev LC_ALL ,
+if that is set),
+so that Windows file names with non-ASCII characters map to Unix names.
 .It Ev WINEDLLOVERRIDES
 Appended after the overrides set by
 .Nm ,
