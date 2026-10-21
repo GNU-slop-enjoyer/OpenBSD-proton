@@ -34,6 +34,16 @@ commits).
   vkd3d-proton.
 - License: LGPL 2.1 or later.
 
+## emulators/proton-wine-addons
+
+- Prebuilt upstream Windows binaries: wine-mono 11.2.0
+  (github.com/madewokherd/wine-mono release asset) and wine-gecko 2.47.4
+  x86_64 (dl.winehq.org), the versions Proton proton-11.0-2e bundles,
+  unpacked into proton-wine's data dir as Proton does. Neither project
+  publishes hashes for these tarballs; distinfo records what was fetched
+  over HTTPS.
+- License: Wine Mono MIT/X11 and others; Wine Gecko MPL 2.0.
+
 ## fonts/proton-fonts
 
 - Source: `ValveSoftware/Proton` `bc896217ff` (proton-11.0-2e) `fonts/`

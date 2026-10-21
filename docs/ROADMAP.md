@@ -28,7 +28,7 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 
 ## M4 — Launcher (Stage F/G)
 - [x] `proton`-equivalent launcher `emulators/proton-openbsd` (`proton-openbsd run …`): prefix setup, DXVK/vkd3d-proton installation, `PROTON_USE_WINED3D`/`PROTON_DXVK_D3D8`/`PROTON_NO_D3D10/11`/`PROTON_LOG`
-- [ ] wine-mono / wine-gecko for .NET and mshtml apps (not packaged; prefixes are created without them)
+- [x] wine-mono / wine-gecko for .NET and mshtml apps: `emulators/proton-wine-addons` (Proton's versions)
 - [ ] Application test matrix (TESTING.md)
 
 ## Out of scope unless something changes

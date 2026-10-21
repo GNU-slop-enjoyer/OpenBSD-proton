@@ -84,7 +84,7 @@ setup_prefix() {
 		# leaves DirectWrite without them.
 		link_fonts
 		# see the mscoree/mshtml note at set_overrides()
-		WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=" \
+		WINEDEBUG=-all WINEDLLOVERRIDES="$ADDON_OVERRIDES" \
 		    "$WINE" wineboot -i || die "wineboot failed for $WINEPREFIX"
 		"$WINEDIR/bin/wineserver" -w
 	fi
@@ -117,11 +117,16 @@ link_fonts() {
 
 # WINEDLLOVERRIDES: "n" for the DLLs we installed, after anything the
 # user set; PROTON_NO_D3D11/PROTON_NO_D3D10 disable those APIs as Proton
-# does.  mscoree and mshtml are disabled because Wine Mono and Wine Gecko
-# are not packaged: otherwise wine offers to download them in a dialog
-# that blocks until clicked, also when it updates a prefix after a
-# proton-wine upgrade.
-overrides="mscoree,mshtml="
+# does.  Without emulators/proton-wine-addons (Wine Mono and Wine Gecko),
+# mscoree and mshtml are disabled: otherwise wine offers to download them
+# in a dialog that blocks until clicked, also when it updates a prefix
+# after a proton-wine upgrade.
+ADDON_OVERRIDES=""
+[ -d "$WINEDIR/share/wine/mono/wine-mono" ] || ADDON_OVERRIDES="mscoree"
+[ -n "$(ls -d "$WINEDIR"/share/wine/gecko/wine-gecko-*-x86_64 2>/dev/null)" ] ||
+    ADDON_OVERRIDES="${ADDON_OVERRIDES:+$ADDON_OVERRIDES,}mshtml"
+[ -n "$ADDON_OVERRIDES" ] && ADDON_OVERRIDES="$ADDON_OVERRIDES="
+overrides="$ADDON_OVERRIDES"
 add_override() {
 	overrides="${overrides:+$overrides;}$1"
 }
