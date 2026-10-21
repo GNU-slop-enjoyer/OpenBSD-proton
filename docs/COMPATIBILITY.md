@@ -157,3 +157,13 @@ Roman/Georgia/Courier New, `merge.py` with fontTools builds Microsoft Sans
 Serif and Nirmala UI from Noto); the launcher links them too. Still
 missing: Proton's CJK fonts (msyh, simsun, malgun from Source Han Sans,
 msgothic from Ume), which need Adobe's afdko (not in ports).
+
+## Sockets (found by `ws2_32_test sock`, session 2)
+
+| Difference | Effect | Status |
+|---|---|---|
+| getsockopt of boolean options returns the flag bit (`so_options & SO_OOBINLINE` = 0x100, `t_flags & TF_NODELAY` = 4, `l_onoff` = 0x80) | Windows programs comparing with 1/TRUE misbehave; with a 1-byte buffer a set option reads as 0 | **fixed** (p2): `do_getsockopt_bool()`, `l_onoff` normalised |
+| IP_MULTICAST_TTL / IP_MULTICAST_LOOP are `u_char` and must be set with length 1 (`ip_setmoptions`: `m_len != 1` → EINVAL) | setting them the Windows way (int) failed with WSAEINVAL — LAN discovery/multicast | **fixed** (p2) on OpenBSD |
+| other options reject lengths ≠ sizeof(int) | only odd-length probes in the test | open (edge case) |
+| no per-socket TCP_KEEPIDLE/TCP_KEEPCNT/TCP_KEEPINTVL (sysctl only) | SIO_KEEPALIVE_VALS/TCP_KEEPALIVE cannot be honoured | platform limitation |
+| connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | open: wineserver would have to recreate the Unix socket after a failed connect |
