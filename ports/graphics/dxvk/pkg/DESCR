@@ -1,0 +1,10 @@
+DXVK implements Direct3D 8, 9, 10 and 11 on top of Vulkan. These are the
+64-bit Windows DLLs (d3d8, d3d9, d3d10core, d3d11, dxgi) for use inside a
+wine prefix, built at the commit used by Valve's Proton 11.0-2e.
+
+To use them, copy the DLLs from /usr/local/lib/dxvk/x64 into the
+prefix's drive_c/windows/system32 (or next to the program) and set
+WINEDLLOVERRIDES="d3d8,d3d9,d3d10core,d3d11,dxgi=n".
+
+A working Vulkan driver is required at run time (on OpenBSD: Mesa anv or
+radv on Intel or AMD GPUs). Only 64-bit Windows programs are supported.

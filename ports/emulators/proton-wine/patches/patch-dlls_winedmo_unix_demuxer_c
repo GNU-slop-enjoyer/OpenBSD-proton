@@ -1,0 +1,58 @@
+Proton's PCM byte order reverse bitstream filter mirrors FFmpeg-internal
+structures and only builds with libavcodec < 60 (the Steam runtime's
+FFmpeg).  OpenBSD has FFmpeg 9: pass big-endian PCM through the null filter,
+report the little-endian codec id and reverse the samples after
+av_bsf_receive_packet() with public API only.
+
+Index: dlls/winedmo/unix_demuxer.c
+--- dlls/winedmo/unix_demuxer.c.orig
++++ dlls/winedmo/unix_demuxer.c
+@@ -38,6 +38,7 @@ struct stream
+ {
+     AVBSFContext *filter;
+     BOOL eos;
++    unsigned int reverse_bytes; /* reverse PCM samples of this size after filtering */
+ };
+ 
+ struct demuxer
+@@ -145,10 +146,24 @@ static NTSTATUS demuxer_create_streams(
+         else if (codec_is_big_endian_pcm(par->codec_id))
+         {
+             /* WAVEFORMATEX does not contain endianness info, so this needs to be converted here. */
++#if LIBAVCODEC_VERSION_MAJOR < 60
+             if (av_bsf_alloc( &ff_pcm_byte_order_reverse_bsf, &stream->filter ) < 0) return STATUS_UNSUCCESSFUL;
+             avcodec_parameters_copy( stream->filter->par_in, par );
+             av_bsf_init( stream->filter );
+             continue;
++#else
++            /* no custom bitstream filters: pass packets through and reverse
++             * the samples in demuxer_filter_packet() */
++            if (par->bits_per_coded_sample > 0 && !(par->bits_per_coded_sample % 8u))
++            {
++                if (av_bsf_get_null_filter( &stream->filter ) < 0) return STATUS_UNSUCCESSFUL;
++                avcodec_parameters_copy( stream->filter->par_in, par );
++                avcodec_parameters_copy( stream->filter->par_out, par );
++                stream->filter->par_out->codec_id = pcm_reverse_codec_id( par->codec_id );
++                stream->reverse_bytes = par->bits_per_coded_sample / 8u;
++                continue;
++            }
++#endif
+         }
+ 
+         av_bsf_get_null_filter( &stream->filter );
+@@ -344,7 +359,14 @@ static NTSTATUS demuxer_filter_packet( s
+         if (!(stream = demuxer->last_stream)) ret = 0;
+         else
+         {
+-            if (!(ret = av_bsf_receive_packet( stream->filter, *packet ))) return STATUS_SUCCESS;
++            if (!(ret = av_bsf_receive_packet( stream->filter, *packet )))
++            {
++                if (!stream->reverse_bytes) return STATUS_SUCCESS;
++                if (!(ret = pcm_reverse_sample_bytes( *packet, stream->reverse_bytes ))) return STATUS_SUCCESS;
++                av_packet_free( packet );
++                ERR( "Failed to reverse PCM byte order, error %s.\n", debugstr_averr( ret ) );
++                return STATUS_UNSUCCESSFUL;
++            }
+             if (ret == AVERROR_EOF) stream->eos = TRUE;
+             if (!ret || ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) ret = 0;
+             else WARN( "Failed to read packet from filter, error %s.\n", debugstr_averr( ret ) );

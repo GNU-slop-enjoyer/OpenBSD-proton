@@ -1,0 +1,44 @@
+nl_langinfo(CODESET) returns US-ASCII in the C locale. Wine strips punctuation
+before looking name up, so we need to add it manually as USASCII
+
+Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
+arguments in this file; see patch-include_wine_unixlib_h.
+
+Index: dlls/ntdll/unix/env.c
+--- dlls/ntdll/unix/env.c.orig
++++ dlls/ntdll/unix/env.c
+@@ -274,6 +274,7 @@ static const struct { const char *name;
+     { "SHIFTJIS", 932 },
+     { "SJIS", 932 },
+     { "TIS620", 28601 },
++    { "USASCII", 20127 },
+     { "UTF8", CP_UTF8 }
+ };
+ 
+@@ -2309,6 +2310,8 @@ NTSTATUS WINAPI NtInitializeNlsFiles( vo
+  */
+ NTSTATUS WINAPI NtQueryDefaultLocale( BOOLEAN user, LCID *lcid )
+ {
++    SYSCALL_NARROW_ARG( user );
++
+     *lcid = user ? user_lcid : system_lcid;
+     return STATUS_SUCCESS;
+ }
+@@ -2319,6 +2322,8 @@ NTSTATUS WINAPI NtQueryDefaultLocale( BO
+  */
+ NTSTATUS WINAPI NtSetDefaultLocale( BOOLEAN user, LCID lcid )
+ {
++    SYSCALL_NARROW_ARG( user );
++
+     if (user) user_lcid = lcid;
+     else system_lcid = lcid;
+     return STATUS_SUCCESS;
+@@ -2340,6 +2345,8 @@ NTSTATUS WINAPI NtQueryDefaultUILanguage
+  */
+ NTSTATUS WINAPI NtSetDefaultUILanguage( LANGID lang )
+ {
++    SYSCALL_NARROW_ARG( lang );
++
+     user_ui_language = lang;
+     return STATUS_SUCCESS;
+ }

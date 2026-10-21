@@ -1,0 +1,31 @@
+# OpenBSD autoinstall(8) response file for the openbsd-proton build VM.
+# Rendered by scripts/vm/install.py; @VAR@ placeholders are substituted.
+System hostname = obsd-proton
+Which network interface do you wish to configure = vio0
+IPv4 address for vio0 = autoconf
+IPv6 address for vio0 = none
+Password for root account = @ROOTPW@
+Public ssh key for root account = @SSHKEY@
+Start sshd(8) by default = yes
+Do you expect to run the X Window System = yes
+Do you want the X Window System to be started by xenodm(1) = no
+Change the default console to com0 = yes
+Which speed should com0 use = 115200
+Setup a user = builder
+Full name for user builder = openbsd-proton builder
+Password for user builder = @ROOTPW@
+Public ssh key for user builder = @SSHKEY@
+Allow root ssh login = prohibit-password
+What timezone are you in = UTC
+Which disk is the root disk = sd0
+Use (W)hole disk MBR, whole disk (G)PT or (E)dit = whole
+Use (A)uto layout, (E)dit auto layout, or create (C)ustom layout = a
+Location of sets = http
+HTTP proxy URL = none
+HTTP Server = @HTTPSERVER@
+Server directory = @SETDIR@
+Unable to connect using https. Use http instead = yes
+Set name(s) = -game*
+Directory does not contain SHA256.sig. Continue without verification = no
+Location of sets = done
+Exit to (S)hell, (H)alt or (R)eboot = reboot

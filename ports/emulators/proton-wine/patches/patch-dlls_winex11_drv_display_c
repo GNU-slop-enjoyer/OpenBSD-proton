@@ -1,0 +1,19 @@
+Backport of upstream wine commit 1897b27f25 (wine-11.18, "winex11.drv:
+Use memmove in strip_driver_extra."): the modes are compacted in place,
+so source and destination overlap once more than one mode is listed.
+OpenBSD libc aborts on overlapping memcpy ("backwards memcpy" in syslog);
+under Xvfb this killed explorer.exe and a DXVK D3D11 test while the
+display devices were being enumerated.
+
+Index: dlls/winex11.drv/display.c
+--- dlls/winex11.drv/display.c.orig
++++ dlls/winex11.drv/display.c
+@@ -162,7 +162,7 @@ static void strip_driver_extra( DEVMODEW
+     {
+         next = NEXT_DEVMODEW(mode);
+         mode->dmDriverExtra = 0;
+-        memcpy( modes + i, mode, sizeof(*mode) );
++        memmove( modes + i, mode, sizeof(*mode) );
+     }
+ }
+ 

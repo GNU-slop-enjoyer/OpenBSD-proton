@@ -1,0 +1,42 @@
+Proton looks up the parent of a process connecting to the master socket
+with SO_PEERCRED and /proc/<pid>/status.  OpenBSD has SO_PEERCRED with
+struct sockpeercred and no /proc: use sysctl(KERN_PROC_PID) p_ppid.
+
+Index: server/request.c
+--- server/request.c.orig
++++ server/request.c
+@@ -44,6 +44,9 @@
+ #endif
+ #include <unistd.h>
+ #include <poll.h>
++#ifdef __OpenBSD__
++#include <sys/sysctl.h>
++#endif
+ #ifdef __APPLE__
+ # include <mach/mach_time.h>
+ #endif
+@@ -563,7 +566,23 @@ static void master_socket_poll_event( st
+         int client = accept( get_unix_fd( master_socket->fd ), (struct sockaddr *) &dummy, &len );
+         if (client == -1) return;
+         fcntl( client, F_SETFL, O_NONBLOCK );
+-#ifdef SO_PEERCRED
++#if defined(SO_PEERCRED) && defined(__OpenBSD__)
++        {
++            /* no /proc: get the parent pid of the connecting process from sysctl */
++            struct sockpeercred cred;
++            struct kinfo_proc kp;
++            size_t size = sizeof(kp);
++            int mib[6] = { CTL_KERN, KERN_PROC, KERN_PROC_PID, 0, sizeof(kp), 1 };
++
++            len = sizeof(cred);
++            if (!getsockopt( client, SOL_SOCKET, SO_PEERCRED, &cred, &len ))
++            {
++                mib[3] = cred.pid;
++                if (!sysctl( mib, 6, &kp, &size, NULL, 0 ) && size == sizeof(kp))
++                    thread = get_thread_from_pid( kp.p_ppid );
++            }
++        }
++#elif defined(SO_PEERCRED)
+         {
+             struct ucred ucred;
+ 

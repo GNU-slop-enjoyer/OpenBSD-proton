@@ -1,0 +1,107 @@
+Proton's PCM byte order reverse bitstream filter mirrors FFmpeg-internal
+structures and only builds with libavcodec < 60 (the Steam runtime's
+FFmpeg).  OpenBSD has FFmpeg 9: pass big-endian PCM through the null filter,
+report the little-endian codec id and reverse the samples after
+av_bsf_receive_packet() with public API only.
+
+Index: dlls/winedmo/libavcodec/pcm_byte_order_reverse_bsf.c
+--- dlls/winedmo/libavcodec/pcm_byte_order_reverse_bsf.c.orig
++++ dlls/winedmo/libavcodec/pcm_byte_order_reverse_bsf.c
+@@ -26,6 +26,54 @@
+ 
+ #ifdef HAVE_FFMPEG
+ 
++enum AVCodecID pcm_reverse_codec_id(enum AVCodecID codec_id)
++{
++    switch (codec_id)
++    {
++    case AV_CODEC_ID_PCM_S16BE: return AV_CODEC_ID_PCM_S16LE;
++    case AV_CODEC_ID_PCM_S24BE: return AV_CODEC_ID_PCM_S24LE;
++    case AV_CODEC_ID_PCM_S32BE: return AV_CODEC_ID_PCM_S32LE;
++    case AV_CODEC_ID_PCM_S64BE: return AV_CODEC_ID_PCM_S64LE;
++    case AV_CODEC_ID_PCM_F32BE: return AV_CODEC_ID_PCM_F32LE;
++    case AV_CODEC_ID_PCM_F64BE: return AV_CODEC_ID_PCM_F64LE;
++    case AV_CODEC_ID_PCM_S16LE: return AV_CODEC_ID_PCM_S16BE;
++    case AV_CODEC_ID_PCM_S24LE: return AV_CODEC_ID_PCM_S24BE;
++    case AV_CODEC_ID_PCM_S32LE: return AV_CODEC_ID_PCM_S32BE;
++    case AV_CODEC_ID_PCM_S64LE: return AV_CODEC_ID_PCM_S64BE;
++    case AV_CODEC_ID_PCM_F32LE: return AV_CODEC_ID_PCM_F32BE;
++    case AV_CODEC_ID_PCM_F64LE: return AV_CODEC_ID_PCM_F64BE;
++    default: return codec_id;
++    }
++}
++
++/* Reverse the byte order of every sample of a packet in place, using only
++ * public FFmpeg API (used where custom bitstream filters can't be defined). */
++int pcm_reverse_sample_bytes(AVPacket *pkt, unsigned int bytes_per_sample)
++{
++    uint8_t *buf, *buf_end, tmp;
++    unsigned int i;
++    int ret;
++
++    if ((ret = av_packet_make_writable(pkt)) < 0)
++        return ret;
++
++    buf_end = pkt->data + pkt->size - pkt->size % bytes_per_sample;
++    for (buf = pkt->data; buf < buf_end; buf += bytes_per_sample)
++    {
++        for (i = 0; i < bytes_per_sample / 2; ++i)
++        {
++            tmp = buf[i];
++            buf[i] = buf[bytes_per_sample - i - 1];
++            buf[bytes_per_sample - i - 1] = tmp;
++        }
++    }
++    return 0;
++}
++
++/* FFmpeg 6 (libavcodec 60) moved the filter callbacks out of the public
++ * AVBitStreamFilter, so a custom filter can only be defined for older ones. */
++#if LIBAVCODEC_VERSION_MAJOR < 60
++
+ #define IS_EMPTY(pkt) (!(pkt)->data && !(pkt)->side_data_elems)
+ 
+ struct AVBSFInternal {
+@@ -55,26 +103,6 @@ int ff_bsf_get_packet(AVBSFContext *ctx,
+     return 0;
+ }
+ 
+-static enum AVCodecID reverse_codec_id(enum AVCodecID codec_id)
+-{
+-    switch (codec_id)
+-    {
+-    case AV_CODEC_ID_PCM_S16BE: return AV_CODEC_ID_PCM_S16LE;
+-    case AV_CODEC_ID_PCM_S24BE: return AV_CODEC_ID_PCM_S24LE;
+-    case AV_CODEC_ID_PCM_S32BE: return AV_CODEC_ID_PCM_S32LE;
+-    case AV_CODEC_ID_PCM_S64BE: return AV_CODEC_ID_PCM_S64LE;
+-    case AV_CODEC_ID_PCM_F32BE: return AV_CODEC_ID_PCM_F32LE;
+-    case AV_CODEC_ID_PCM_F64BE: return AV_CODEC_ID_PCM_F64LE;
+-    case AV_CODEC_ID_PCM_S16LE: return AV_CODEC_ID_PCM_S16BE;
+-    case AV_CODEC_ID_PCM_S24LE: return AV_CODEC_ID_PCM_S24BE;
+-    case AV_CODEC_ID_PCM_S32LE: return AV_CODEC_ID_PCM_S32BE;
+-    case AV_CODEC_ID_PCM_S64LE: return AV_CODEC_ID_PCM_S64BE;
+-    case AV_CODEC_ID_PCM_F32LE: return AV_CODEC_ID_PCM_F32BE;
+-    case AV_CODEC_ID_PCM_F64LE: return AV_CODEC_ID_PCM_F64BE;
+-    default: return codec_id;
+-    }
+-}
+-
+ static int init(AVBSFContext *ctx)
+ {
+     if (ctx->par_in->channels <= 0 || ctx->par_in->sample_rate <= 0)
+@@ -82,7 +110,7 @@ static int init(AVBSFContext *ctx)
+     if (ctx->par_in->bits_per_coded_sample % 8u)
+         return AVERROR(EINVAL);
+ 
+-    ctx->par_out->codec_id = reverse_codec_id(ctx->par_in->codec_id);
++    ctx->par_out->codec_id = pcm_reverse_codec_id(ctx->par_in->codec_id);
+ 
+     return 0;
+ }
+@@ -154,4 +182,6 @@ const AVBitStreamFilter ff_pcm_byte_orde
+     .codec_ids      = codec_ids,
+ };
+ 
++#endif /* LIBAVCODEC_VERSION_MAJOR < 60 */
++
+ #endif /* HAVE_FFMPEG */

@@ -1,0 +1,12 @@
+Index: dlls/ntdll/unix/alpc.c
+--- dlls/ntdll/unix/alpc.c.orig
++++ dlls/ntdll/unix/alpc.c
+@@ -35,6 +35,8 @@ NTSTATUS WINAPI NtAlpcAcceptConnectPort(
+                                          ALPC_PORT_MESSAGE *send_msg,
+                                          ALPC_MESSAGE_ATTRIBUTES *send_msg_attr, BOOLEAN accept )
+ {
++    SYSCALL_NARROW_ARG( accept );
++
+     FIXME( "%p, %p, %#x, %p, %p, %p, %p, %p, %d stub!\n", communication_port, connection_port,
+            (unsigned int)flags, obj_attr, port_attr, port_context, send_msg, send_msg_attr, accept );
+     return STATUS_NOT_IMPLEMENTED;

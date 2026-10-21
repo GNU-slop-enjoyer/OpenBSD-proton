@@ -1,0 +1,116 @@
+.Dd $Mdocdate: October 21 2026 $
+.Dt PROTON-OPENBSD 1
+.Os
+.Sh NAME
+.Nm proton-openbsd
+.Nd run 64-bit Windows programs with Proton's wine, DXVK and vkd3d-proton
+.Sh SYNOPSIS
+.Nm
+.Cm run
+.Ar program.exe
+.Op Ar arg ...
+.Nm
+.Ar wine-program
+.Op Ar arg ...
+.Nm
+.Cm prefix
+.Sh DESCRIPTION
+.Nm
+sets up a wine prefix and runs a Windows program in it the way Valve's
+Proton does, using Proton's fork of wine
+.Pq Pa ${TRUEPREFIX}/lib/proton-wine ,
+DXVK for Direct3D 9, 10 and 11, and vkd3d-proton for Direct3D 12.
+.Pp
+On every start the DLLs selected below are copied into the prefix's
+.Pa drive_c/windows/system32
+if they differ, and
+.Ev WINEDLLOVERRIDES
+is set so that wine loads them instead of its builtin versions.
+DXVK provides d3d9, d3d10core, d3d11 and dxgi; vkd3d-proton provides d3d12
+and d3d12core; wine's own wined3d provides d3d8.
+If DXVK or vkd3d-proton is not installed, wine's builtin DLLs are used for
+those APIs.
+Wine's fonts, and any fonts in
+.Ev PROTON_FONTS_DIR ,
+are linked into the prefix's
+.Pa drive_c/windows/Fonts ,
+where Proton's wine expects the system fonts.
+.Pp
+The commands are:
+.Bl -tag -width Ds
+.It Cm run Ar program.exe Op Ar arg ...
+Run a Windows program.
+.It Ar wine-program Op Ar arg ...
+Run a program shipped with wine, such as
+.Cm winecfg ,
+.Cm regedit
+or
+.Cm wineboot ,
+in the same prefix and with the same settings.
+.It Cm prefix
+Create the prefix, or update the DLLs in it, and exit.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev PROTON_PREFIX
+The wine prefix to use.
+Defaults to
+.Ev WINEPREFIX
+if set, otherwise
+.Pa ${XDG_DATA_HOME:-~/.local/share}/proton-openbsd/pfx .
+.It Ev PROTON_FONTS_DIR
+Additional directory of
+.Pa .ttf
+and
+.Pa .ttc
+fonts to link into the prefix, such as the fonts Proton builds from
+Liberation, Noto and Source Han.
+Defaults to
+.Pa ${TRUEPREFIX}/share/proton-fonts .
+.It Ev PROTON_USE_WINED3D
+If non-zero, use wine's OpenGL-based wined3d for all Direct3D versions
+instead of DXVK and vkd3d-proton.
+.It Ev PROTON_DXVK_D3D8
+If non-zero, also use DXVK's d3d8.
+.It Ev PROTON_NO_D3D11 , PROTON_NO_D3D10
+If non-zero, disable Direct3D 11, or Direct3D 10, as Proton does.
+.It Ev PROTON_LOG
+If 1, append a log with Proton's default wine debug channels and DXVK and
+vkd3d-proton messages to
+.Pa proton- Ns Ar program Ns Pa .log
+in
+.Ev PROTON_LOG_DIR
+(default:
+.Ev HOME ) .
+Any other non-zero value is added to the default
+.Ev WINEDEBUG
+channels.
+.It Ev WINEDLLOVERRIDES
+Appended after the overrides set by
+.Nm ,
+so user settings take precedence.
+.El
+.Sh EXAMPLES
+Run a game with DXVK, logging to
+.Pa ~/proton-game.log :
+.Pp
+.Dl $ PROTON_LOG=1 proton-openbsd run ~/games/game/game.exe
+.Pp
+Configure the prefix:
+.Pp
+.Dl $ proton-openbsd winecfg
+.Sh SEE ALSO
+.Xr wine 1
+.Sh CAVEATS
+Only 64-bit Windows programs can run on
+.Ox ;
+the kernel provides no 32-bit code segment for user processes.
+DXVK and vkd3d-proton need a Vulkan driver, which on
+.Ox
+means Mesa's anv or radv on Intel or AMD graphics.
+Steam, Steam's runtime and anti-cheat systems are not supported.
+.Pp
+Wine Mono and Wine Gecko are not packaged, so
+.Nm
+disables mscoree and mshtml and programs that need .NET or wine's HTML
+engine do not work.

@@ -1,0 +1,31 @@
+Narrow syscall arguments (BOOLEAN, WORD, BYTE, ...) arrive from the
+x86_64 syscall dispatcher with the undefined upper bits the Windows caller
+left in the register or stack slot.  Clang compiles these SysV functions
+assuming the caller zero/sign-extended them to 32 bits (GCC does not), so a
+FALSE could test as TRUE (NtQueryDirectoryObject restart=TRUE made
+GetLogicalDrives() loop forever).  SYSCALL_NARROW_ARG() (wine/unixlib.h)
+makes them opaque at function entry.  The affected syscalls were listed by
+scripts/debug/narrow-syscall-args.py in the openbsd-proton project.
+
+Index: dlls/win32u/palette.c
+--- dlls/win32u/palette.c.orig
++++ dlls/win32u/palette.c
+@@ -512,6 +512,8 @@ HPALETTE WINAPI NtUserSelectPalette( HDC
+     HPALETTE ret = 0;
+     DC *dc;
+ 
++    SYSCALL_NARROW_ARG( bkg );
++
+     TRACE("%p %p\n", hdc, hpal );
+ 
+     if (!bkg && hpal != GetStockObject( DEFAULT_PALETTE ))
+@@ -626,6 +628,9 @@ BOOL WINAPI NtGdiSetMagicColors( HDC hdc
+ LONG WINAPI NtGdiDoPalette( HGDIOBJ handle, WORD start, WORD count, void *entries,
+                             DWORD func, BOOL inbound )
+ {
++    SYSCALL_NARROW_ARG( start );
++    SYSCALL_NARROW_ARG( count );
++
+     switch (func)
+     {
+     case NtGdiAnimatePalette:

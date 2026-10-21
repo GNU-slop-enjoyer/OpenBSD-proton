@@ -1,0 +1,9 @@
+A cross toolchain targeting 64-bit Windows (x86_64-w64-mingw32), for
+building Windows PE programs and DLLs such as DXVK and vkd3d-proton.
+
+The compiler, assembler and linker are the installed LLVM (clang, lld,
+llvm-ar, llvm-dlltool, llvm-windres). This package adds the mingw-w64
+headers, the mingw-w64 CRT targeting the Universal CRT (UCRT),
+winpthreads, and LLVM's compiler-rt builtins, libunwind, libc++abi and
+libc++ built for the target, the widl IDL compiler, and
+x86_64-w64-mingw32-* driver wrappers.

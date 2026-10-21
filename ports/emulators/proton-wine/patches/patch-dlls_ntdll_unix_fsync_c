@@ -1,0 +1,48 @@
+Proton's fsync uses the Linux futex and futex_waitv syscalls through
+syscall(2), which OpenBSD libc does not provide.  fsync is never enabled
+outside Linux (server fsync_check_support()); keep the code compiling with
+ENOSYS stubs so that WINEFSYNC=1 fails with the existing error message.
+
+Index: dlls/ntdll/unix/fsync.c
+--- dlls/ntdll/unix/fsync.c.orig
++++ dlls/ntdll/unix/fsync.c
+@@ -138,6 +138,7 @@ static void simulate_sched_quantum(void)
+     usleep(0);
+ }
+ 
++#ifdef __linux__
+ static inline int futex_wait_multiple( const struct futex_waitv *futexes,
+         int count, const struct timespec64 *end, clockid_t clock_id )
+ {
+@@ -151,6 +152,22 @@ static inline int futex_wake( int *addr,
+ {
+     return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
+ }
++#else
++/* No futex_waitv outside Linux: fsync_init() reports this and exits, and
++ * the server never enables fsync there (fsync_check_support()). */
++static inline int futex_wait_multiple( const struct futex_waitv *futexes,
++        int count, const struct timespec64 *end, clockid_t clock_id )
++{
++    errno = ENOSYS;
++    return -1;
++}
++
++static inline int futex_wake( int *addr, int val )
++{
++    errno = ENOSYS;
++    return -1;
++}
++#endif
+ 
+ struct fsync
+ {
+@@ -456,7 +473,7 @@ void fsync_init( DWORD pid )
+ 
+ 
+     fsync_enabled = 1;
+-    syscall( __NR_futex_waitv, NULL, 0, 0, NULL, 0 );
++    futex_wait_multiple( NULL, 0, NULL, 0 );
+     if (errno == ENOSYS || errno == EPERM)
+     {
+         ERR("Server is running with WINEFSYNC but this process can't use __NR_futex_waitv.\n");

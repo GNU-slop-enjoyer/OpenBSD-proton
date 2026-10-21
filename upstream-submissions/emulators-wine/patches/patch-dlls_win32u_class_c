@@ -1,0 +1,21 @@
+Index: dlls/win32u/class.c
+--- dlls/win32u/class.c.orig
++++ dlls/win32u/class.c
+@@ -779,6 +779,8 @@ ULONG WINAPI NtUserGetAtomName( ATOM ato
+     WCHAR buffer[MAX_ATOM_LEN + 1];
+     UINT size = 0;
+ 
++    SYSCALL_NARROW_ARG( atom );
++
+     if (atom < MAXINTATOM)
+     {
+         if (!atom)
+@@ -985,6 +987,8 @@ ULONG_PTR WINAPI NtUserSetClassLongPtr(
+  */
+ WORD WINAPI NtUserSetClassWord( HWND hwnd, INT offset, WORD newval )
+ {
++    SYSCALL_NARROW_ARG( newval );
++
+     return set_class_long_size( hwnd, offset, newval, sizeof(WORD), TRUE );
+ }
+ 

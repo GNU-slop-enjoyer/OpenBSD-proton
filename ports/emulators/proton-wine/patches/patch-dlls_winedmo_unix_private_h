@@ -1,0 +1,22 @@
+Proton's PCM byte order reverse bitstream filter mirrors FFmpeg-internal
+structures and only builds with libavcodec < 60 (the Steam runtime's
+FFmpeg).  OpenBSD has FFmpeg 9: pass big-endian PCM through the null filter,
+report the little-endian codec id and reverse the samples after
+av_bsf_receive_packet() with public API only.
+
+Index: dlls/winedmo/unix_private.h
+--- dlls/winedmo/unix_private.h.orig
++++ dlls/winedmo/unix_private.h
+@@ -46,8 +46,12 @@ extern int mediaconv_demuxer_open( AVFor
+ 
+ /* libavcodec/pcm_byte_order_reverse.c */
+ #ifdef HAVE_FFMPEG
++extern enum AVCodecID pcm_reverse_codec_id( enum AVCodecID codec_id );
++extern int pcm_reverse_sample_bytes( AVPacket *pkt, unsigned int bytes_per_sample );
++#if LIBAVCODEC_VERSION_MAJOR < 60
+ extern const AVBitStreamFilter ff_pcm_byte_order_reverse_bsf;
+ #endif
++#endif
+ 
+ /* unixlib.c */
+ extern int64_t unix_seek_callback( void *opaque, int64_t offset, int whence );

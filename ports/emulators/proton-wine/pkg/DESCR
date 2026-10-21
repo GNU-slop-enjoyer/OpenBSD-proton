@@ -1,0 +1,8 @@
+Wine as shipped in Valve's Proton (proton-11.0-2e), with the OpenBSD
+support of emulators/wine rebased onto it. Proton's fork carries game
+compatibility fixes that are not in upstream Wine.
+
+It is installed in ${PREFIX} so that it can coexist with
+emulators/wine.
+
+Only 64-bit Windows applications are supported.

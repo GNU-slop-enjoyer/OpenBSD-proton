@@ -19,3 +19,21 @@ dist/
 *~
 *.swp
 *.swo
+
+# Local VM images, keys and logs
+/vm/
+/logs/
+
+# Stray release/source archives at the top level
+/*.tar.gz
+/*.tgz
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local work trees (their changes are exported as ports patches)
+/work/proton-port/wine/
+
+# Locally fetched distfiles for port prototyping
+/distfiles/

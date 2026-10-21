@@ -1,0 +1,10 @@
+lib/dxvk/
+lib/dxvk/x64/
+lib/dxvk/x64/d3d10core.dll
+lib/dxvk/x64/d3d11.dll
+lib/dxvk/x64/d3d8.dll
+lib/dxvk/x64/d3d9.dll
+lib/dxvk/x64/dxgi.dll
+share/doc/dxvk/
+share/doc/dxvk/README.md
+share/doc/dxvk/dxvk.conf

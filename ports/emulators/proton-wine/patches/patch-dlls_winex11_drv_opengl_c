@@ -1,0 +1,27 @@
+Backport of upstream wine commit f68eb9e43d (wine-11.19, "winex11: Fix
+use-after-free in GL_EXTENSIONS string."): the extension string of the
+temporary GLX context was kept after the context was destroyed.  With
+Mesa on OpenBSD this crashed in x11drv_init_wgl_extensions() when DXVK
+created a Vulkan instance (win32u get_opengl_gpus).
+
+Index: dlls/winex11.drv/opengl.c
+--- dlls/winex11.drv/opengl.c.orig
++++ dlls/winex11.drv/opengl.c
+@@ -355,6 +355,7 @@ static BOOL X11DRV_WineGL_InitOpenglInfo
+     Window win = 0, root = 0;
+     const char *gl_version;
+     const char *gl_renderer;
++    const char *gl_extensions;
+     BOOL glx_direct;
+     XVisualInfo *vis;
+     GLXContext ctx = NULL;
+@@ -404,7 +405,8 @@ static BOOL X11DRV_WineGL_InitOpenglInfo
+     }
+     gl_renderer = (const char *)pglGetString(GL_RENDERER);
+     gl_version  = (const char *)pglGetString(GL_VERSION);
+-    glExtensions = (const char *) pglGetString(GL_EXTENSIONS);
++    gl_extensions = (const char *)pglGetString(GL_EXTENSIONS);
++    glExtensions = gl_extensions ? strdup( gl_extensions ) : NULL;
+ 
+     /* Get the common GLX version supported by GLX client and server ( major/minor) */
+     pglXQueryVersion(gdi_display, &glxVersion[0], &glxVersion[1]);

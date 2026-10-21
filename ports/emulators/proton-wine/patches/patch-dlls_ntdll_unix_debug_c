@@ -1,0 +1,21 @@
+Narrow syscall arguments (BOOLEAN, WORD, BYTE, ...) arrive from the
+x86_64 syscall dispatcher with the undefined upper bits the Windows caller
+left in the register or stack slot.  Clang compiles these SysV functions
+assuming the caller zero/sign-extended them to 32 bits (GCC does not), so a
+FALSE could test as TRUE (NtQueryDirectoryObject restart=TRUE made
+GetLogicalDrives() loop forever).  SYSCALL_NARROW_ARG() (wine/unixlib.h)
+makes them opaque at function entry.  The affected syscalls were listed by
+scripts/debug/narrow-syscall-args.py in the openbsd-proton project.
+
+Index: dlls/ntdll/unix/debug.c
+--- dlls/ntdll/unix/debug.c.orig
++++ dlls/ntdll/unix/debug.c
+@@ -453,6 +453,8 @@ NTSTATUS WINAPI NtTraceControl( ULONG co
+  */
+ NTSTATUS WINAPI NtSetDebugFilterState( ULONG component_id, ULONG level, BOOLEAN state )
+ {
++    SYSCALL_NARROW_ARG( state );
++
+     FIXME( "component_id %#x, level %u, state %#x stub.\n", component_id, level, state );
+ 
+     return STATUS_SUCCESS;
