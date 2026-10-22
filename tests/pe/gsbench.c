@@ -59,6 +59,23 @@ __asm__( ".text\n\t"
          "ret\n\t"
          ".p2align 5, 0xcc\n\t" );
 
+static void *query_teb(void)
+{
+	struct {
+		LONG status;
+		void *teb;
+		ULONG_PTR rest[4];
+	} info;
+	LONG (WINAPI *query)(HANDLE, int, void *, ULONG, ULONG *);
+
+	query = (void *)GetProcAddress(GetModuleHandleA("ntdll.dll"),
+	    "NtQueryInformationThread");
+	if (!query || query(GetCurrentThread(), 0 /* ThreadBasicInformation */,
+	    &info, sizeof(info), NULL))
+		return NULL;
+	return info.teb;
+}
+
 static void report(const char *what, double s, long n)
 {
 	printf("%-40s %8.2f ns/op\n", what, s * 1e9 / n);
@@ -70,8 +87,19 @@ int main(void)
 	volatile void *sink;
 	volatile DWORD dsink;
 	unsigned char *code;
+	void *teb;
 	double t;
 	long i;
+
+	/* every form must read the TEB, before and after its rewrite; the
+	 * reference comes from a system call, not from %gs */
+	teb = query_teb();
+	for (i = 0; i < 2; i++)
+		if (!teb || read_gs_teb() != teb || read_gs_short() != teb ||
+		    gs_short_padded() != teb) {
+			printf("FAIL: %%gs read does not return the TEB (pass %ld)\n", i);
+			return 1;
+		}
 
 	t = now();
 	for (i = 0; i < N; i++)
