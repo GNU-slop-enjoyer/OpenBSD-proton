@@ -1,3 +1,52 @@
+diff -ruN -x '*.orig' wine1119-base/dlls/kernel32/sync.c wine1119-chg/dlls/kernel32/sync.c
+--- a/dlls/kernel32/sync.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/kernel32/sync.c	2026-10-22 02:19:20.741036277 +0200
+@@ -831,17 +831,27 @@
+     return 0;
+ }
+ 
++/* number of outstanding timeBeginPeriod() calls with a period finer than
++ * 10 ms; ntdll is told while there are any (NtSetTimerResolution), which
++ * matters where the host's timers are coarser than that (OpenBSD) */
++static LONG fine_period_count;
++
+ /******************************************************************************
+  *		timeBeginPeriod (KERNEL32.@)
+  */
+ MMRESULT WINAPI timeBeginPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedIncrement( &fine_period_count ) == 1)
++        NtSetTimerResolution( period * 10000, TRUE, &current );
++
+     return 0;
+ }
+ 
+@@ -850,12 +860,17 @@
+  */
+ MMRESULT WINAPI timeEndPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedDecrement( &fine_period_count ) == 0)
++        NtSetTimerResolution( 0, FALSE, &current );
++
+     return 0;
+ }
+ 
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/ntdll/unix/process.c
 --- a/dlls/ntdll/unix/process.c	2026-10-21 10:30:15.232094899 +0200
 +++ b/dlls/ntdll/unix/process.c	2026-10-21 18:02:20.313672502 +0200
@@ -38,8 +87,24 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/
  void fill_vm_counters( VM_COUNTERS_EX *pvmi, int unix_pid )
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/ntdll/unix/server.c
 --- a/dlls/ntdll/unix/server.c	2026-10-21 10:30:15.236738912 +0200
-+++ b/dlls/ntdll/unix/server.c	2026-10-21 18:02:20.316833314 +0200
-@@ -706,6 +706,15 @@
++++ b/dlls/ntdll/unix/server.c	2026-10-22 02:19:20.777496925 +0200
+@@ -289,7 +289,14 @@
+     unsigned int ret;
+ 
+     if ((ret = send_request( data->request_fd, req ))) return ret;
+-    return wait_reply( data->reply_fd, req );
++    ret = wait_reply( data->reply_fd, req );
++#ifdef __OpenBSD__
++    /* A system APC queued to this thread while the server handled the request
++     * (e.g. completing a cancelled I/O) must run before the caller continues,
++     * as it does on Linux; the SIGUSR2 relay may reach us later. */
++    claim_own_signal_targets( data->unix_tid );
++#endif
++    return ret;
+ }
+ 
+ 
+@@ -706,6 +713,15 @@
          break;
      }
  #ifdef __OpenBSD__
@@ -55,7 +120,7 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
      case APC_COPY_MEMORY:
      {
          HANDLE section = wine_server_ptr_handle( call->copy_memory.handle );
-@@ -724,12 +733,29 @@
+@@ -724,12 +740,29 @@
                                                               &view_size, ViewShare, 0, PAGE_READWRITE );
              if (!result->copy_memory.status)
              {
@@ -91,7 +156,15 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
                  NtUnmapViewOfSection( NtCurrentProcess(), view );
              }
          }
-@@ -1834,6 +1860,9 @@
+@@ -1727,6 +1760,7 @@
+         req->unix_tid    = get_unix_tid();
+ #ifdef __OpenBSD__
+         add_signal_tid( req->unix_tid );
++        data->unix_tid = req->unix_tid;
+ #endif
+         req->reply_fd    = reply_pipe;
+         req->wait_fd     = data->wait_fd[1];
+@@ -1834,6 +1868,9 @@
          req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
          status = wine_server_call( req );
          data->suspend = reply->suspend;
@@ -101,6 +174,14 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
      }
      SERVER_END_REQ;
  
+@@ -1870,6 +1907,7 @@
+         req->unix_tid  = get_unix_tid();
+ #ifdef __OpenBSD__
+         add_signal_tid( req->unix_tid );
++        data->unix_tid = req->unix_tid;
+ #endif
+         req->teb       = wine_server_client_ptr( teb64 ? (void *)teb64 : (void *)data->teb );
+         req->reply_fd  = reply_pipe;
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/signal_x86_64.c wine1119-chg/dlls/ntdll/unix/signal_x86_64.c
 --- a/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 10:30:15.241031287 +0200
 +++ b/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 22:11:46.263123983 +0200
@@ -134,6 +215,53 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/signal_x86_64.c wine1119-chg
      thread_data->frame_size = frame_size;
      return STATUS_SUCCESS;
  }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sig_openbsd.c wine1119-chg/dlls/ntdll/unix/sig_openbsd.c
+--- a/dlls/ntdll/unix/sig_openbsd.c	2026-10-21 10:30:15.246218261 +0200
++++ b/dlls/ntdll/unix/sig_openbsd.c	2026-10-22 02:19:20.724548800 +0200
+@@ -121,6 +121,29 @@
+     errno = saved_errno;
+ }
+ 
++void claim_own_signal_targets( int tid )
++{
++    int saved_errno = errno;
++    unsigned int i;
++
++    if (!signal_targets || tid <= 0) return;
++
++    for (i = 0; i < SIGNAL_TARGETS_COUNT; i++)
++    {
++        uint64_t request = __atomic_load_n( &signal_targets[i], __ATOMIC_RELAXED );
++        unsigned int sig = request >> 32;
++
++        if (!request || (int)(uint32_t)request != tid) continue;
++        if (!__atomic_compare_exchange_n( &signal_targets[i], &request, 0, FALSE,
++                                          __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ))
++            continue;  /* the SIGUSR2 relay took it */
++        if (sig != SIGINT && sig != SIGUSR1 && sig != SIGQUIT) continue;
++        /* the caller blocks these signals; it is delivered when it unblocks them */
++        thrkill( tid, sig, NULL );
++    }
++    errno = saved_errno;
++}
++
+ void init_signal_targets( const char *server_dir, unsigned int process_id )
+ {
+     void *ptr;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sig_openbsd.h wine1119-chg/dlls/ntdll/unix/sig_openbsd.h
+--- a/dlls/ntdll/unix/sig_openbsd.h	2026-10-21 10:30:15.249356612 +0200
++++ b/dlls/ntdll/unix/sig_openbsd.h	2026-10-22 02:19:20.724614638 +0200
+@@ -35,6 +35,10 @@
+ /* On SIGUSR2, drain server requests and relay SIGINT, SIGUSR1 or SIGQUIT to registered threads. */
+ extern void forward_thread_signal(void);
+ 
++/* After a server call: deliver requests for this thread now, as Linux delivers a
++ * signal the server sent during the call when the call returns. */
++extern void claim_own_signal_targets( int tid );
++
+ /* map the array the server leaves the targets in. server_dir - its directory */
+ extern void init_signal_targets( const char *server_dir, unsigned int process_id );
+ 
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/ntdll/unix/socket.c
 --- a/dlls/ntdll/unix/socket.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/dlls/ntdll/unix/socket.c	2026-10-21 15:25:01.476518939 +0200
@@ -303,6 +431,67 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/n
  
          case IOCTL_AFD_WINE_SET_TCP_NODELAY:
              return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-chg/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/sync.c	2026-10-22 02:19:20.741298559 +0200
+@@ -2419,6 +2419,29 @@
+ /******************************************************************
+  *		NtDelayExecution (NTDLL.@)
+  */
++#ifdef __OpenBSD__
++/* resolution requested with NtSetTimerResolution(), in 100 ns units; 0 if none */
++static ULONG timer_resolution_request;
++
++/* OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout,
++ * so Sleep(1) takes 20 ms and Sleep(16) 30 ms.  When the process asked for a
++ * finer timer resolution (timeBeginPeriod(1), as games with frame limiters
++ * do), or WINE_PRECISE_SLEEP=1 is set, sleep in the kernel only while more
++ * than two ticks remain and yield the CPU for the rest. */
++static BOOL use_precise_sleep(void)
++{
++    static int setting = -1;
++
++    if (setting == -1)
++    {
++        const char *env = getenv( "WINE_PRECISE_SLEEP" );
++        setting = env && *env ? !!atoi( env ) : 2;
++    }
++    if (setting != 2) return setting;
++    return timer_resolution_request && timer_resolution_request < 100000;
++}
++#endif
++
+ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeout )
+ {
+     unsigned int status = STATUS_SUCCESS;
+@@ -2459,6 +2482,17 @@
+             NtQuerySystemTime( &now );
+             diff = (when - now.QuadPart + 9) / 10;
+             if (diff <= 0) break;
++#ifdef __OpenBSD__
++            if (use_precise_sleep())
++            {
++                if (diff <= 20000)  /* two ticks */
++                {
++                    sched_yield();
++                    continue;
++                }
++                diff -= 20000;
++            }
++#endif
+             tv.tv_sec  = diff / 1000000;
+             tv.tv_usec = diff % 1000000;
+             if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
+@@ -2569,6 +2603,9 @@
+     if (!has_request && !set)
+         return STATUS_TIMER_RESOLUTION_NOT_SET;
+     has_request = set;
++#ifdef __OpenBSD__
++    timer_resolution_request = set ? res : 0;
++#endif
+ 
+     return STATUS_SUCCESS;
+ }
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-chg/dlls/ntdll/unix/system.c
 --- a/dlls/ntdll/unix/system.c	2026-10-21 10:30:15.253397925 +0200
 +++ b/dlls/ntdll/unix/system.c	2026-10-21 18:02:20.315671572 +0200
@@ -387,6 +576,17 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-chg/dlls/n
  #endif
          if (cpus == 0)
          {
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/unix_private.h wine1119-chg/dlls/ntdll/unix/unix_private.h
+--- a/dlls/ntdll/unix/unix_private.h	2026-10-21 10:30:15.262353160 +0200
++++ b/dlls/ntdll/unix/unix_private.h	2026-10-22 02:19:20.755323720 +0200
+@@ -124,6 +124,7 @@
+     pthread_t    pthread_id;        /* pthread thread id */
+ #ifdef __OpenBSD__
+     void        *kernel_stack;
++    int          unix_tid;          /* thread id, for signal relay requests */
+ #endif
+     void        *jmp_buf;           /* setjmp buffer for exception handling */
+     void        *start;             /* thread entry point */
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/ntdll/unix/virtual.c
 --- a/dlls/ntdll/unix/virtual.c	2026-10-21 10:30:15.267697983 +0200
 +++ b/dlls/ntdll/unix/virtual.c	2026-10-21 15:25:01.391488651 +0200

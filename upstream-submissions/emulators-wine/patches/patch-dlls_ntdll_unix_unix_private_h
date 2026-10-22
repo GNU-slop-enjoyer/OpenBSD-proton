@@ -2,20 +2,23 @@ These methods in headerfile help us create location in memory for stubs and
 also protect it for Write while removing Execution, so if something tries to
 execute while we are writing, it has to retry.
 
+thread_data.unix_tid (relay requests for the calling thread).
+
 Index: dlls/ntdll/unix/unix_private.h
 --- dlls/ntdll/unix/unix_private.h.orig
 +++ dlls/ntdll/unix/unix_private.h
-@@ -122,6 +122,9 @@ struct thread_data
+@@ -122,6 +122,10 @@ struct thread_data
      BOOL         suspend;           /* suspend on startup */
      BOOL         filesys_redir;     /* WOW64_TLS_FILESYSREDIR before the TEB is created */
      pthread_t    pthread_id;        /* pthread thread id */
 +#ifdef __OpenBSD__
 +    void        *kernel_stack;
++    int          unix_tid;          /* thread id, for signal relay requests */
 +#endif
      void        *jmp_buf;           /* setjmp buffer for exception handling */
      void        *start;             /* thread entry point */
      void        *param;             /* thread entry point parameter */
-@@ -268,6 +271,7 @@ extern void process_exit_wrapper( int status ) DECLSPE
+@@ -268,6 +272,7 @@ extern void process_exit_wrapper( int st
  extern void server_init_process( struct thread_data *data );
  extern void server_init_process_done(void);
  extern void server_init_thread( struct thread_data *data );
@@ -23,7 +26,7 @@ Index: dlls/ntdll/unix/unix_private.h
  extern int server_pipe( int fd[2] );
  
  extern void fpux_to_fpu( I386_FLOATING_SAVE_AREA *fpu, const XSAVE_FORMAT *fpux );
-@@ -345,6 +349,21 @@ extern void *get_builtin_so_handle( void *module );
+@@ -345,6 +350,21 @@ extern void *get_builtin_so_handle( void
  extern NTSTATUS set_builtin_unixlib_name( void *module, const char *name );
  extern BOOL is_emulated_code( ULONG_PTR ptr );
  
@@ -45,7 +48,7 @@ Index: dlls/ntdll/unix/unix_private.h
  extern NTSTATUS get_thread_ldt_entry( HANDLE handle, THREAD_DESCRIPTOR_INFORMATION *info, ULONG len );
  extern void *get_native_context( CONTEXT *context );
  extern void *get_wow_context( CONTEXT *context );
-@@ -455,7 +474,11 @@ static inline void ascii_to_unicode( WCHAR *dst, const
+@@ -455,7 +475,11 @@ static inline void ascii_to_unicode( WCH
  
  static inline void *get_kernel_stack( struct thread_data *data )
  {

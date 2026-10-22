@@ -59,6 +59,11 @@ when the system cannot (no nss-myhostname on OpenBSD; ws2_32 protocol test
 19 -> 1 failures in proton-wine).
 Exception/thread contexts report the real %fs selector (OpenBSD's
 sigcontext has none; 40 ntdll exception test failures in proton-wine).
+Third batch (2026-10-22, not built for 11.19 yet; tested in proton-wine):
+relayed signals for the calling thread are delivered when its server call
+returns (system APCs queued during the call ran late through the SIGUSR2
+relay), and precise Sleep() for processes that call timeBeginPeriod(<10)
+or set WINE_PRECISE_SLEEP=1 (the 100 Hz clock made Sleep(1) take 20 ms).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
