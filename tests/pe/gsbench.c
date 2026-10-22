@@ -47,6 +47,18 @@ static __attribute__((noinline)) void *read_gs_short(void)
 	return teb;
 }
 
+/* the same instruction in a function followed by int3 padding up to the
+ * next 32-byte boundary, as compilers pad between functions: the padding
+ * can hold the jump that the instruction has no room for */
+void *gs_short_padded(void);
+__asm__( ".text\n\t"
+         ".p2align 5\n"
+         "gs_short_padded:\n\t"
+         "movq $0x30, %rcx\n\t"
+         ".byte 0x65, 0x48, 0x8b, 0x01\n\t"   /* mov %gs:(%rcx),%rax */
+         "ret\n\t"
+         ".p2align 5, 0xcc\n\t" );
+
 static void report(const char *what, double s, long n)
 {
 	printf("%-40s %8.2f ns/op\n", what, s * 1e9 / n);
@@ -70,6 +82,11 @@ int main(void)
 	for (i = 0; i < N / 100; i++)
 		sink = read_gs_short();
 	report("mov %gs:(%rcx) (4-byte form)", now() - t, N / 100);
+
+	t = now();
+	for (i = 0; i < N; i++)
+		sink = gs_short_padded();
+	report("mov %gs:(%rcx), int3 padding nearby", now() - t, N);
 
 	t = now();
 	for (i = 0; i < N; i++)
