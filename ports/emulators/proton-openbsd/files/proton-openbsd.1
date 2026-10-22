@@ -74,6 +74,18 @@ instead of DXVK and vkd3d-proton.
 If non-zero, also use DXVK's d3d8.
 .It Ev PROTON_NO_D3D11 , PROTON_NO_D3D10
 If non-zero, disable Direct3D 11, or Direct3D 10, as Proton does.
+.It Ev PROTON_NO_FSYNC
+If non-zero, do not use fsync, the futex-based in-process implementation
+of Windows synchronization objects; every wait then goes through
+.Xr wineserver 1 .
+.It Ev WINE_PRECISE_SLEEP
+The system clock ticks at 100 Hz, so a sleep ends on a tick after its
+timeout.
+Programs that ask for a finer timer resolution
+.Pq Fn timeBeginPeriod
+sleep precisely, by sleeping in the kernel for whole ticks and yielding
+the processor for the rest; 1 forces this for all programs, 0 turns it
+off.
 .It Ev PROTON_LOG
 If 1, append a log with Proton's default wine debug channels and DXVK and
 vkd3d-proton messages to

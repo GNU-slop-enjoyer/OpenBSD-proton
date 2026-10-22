@@ -5,21 +5,23 @@ futex_waitv: single-object waits use FUTEX_WAIT; waits on several futexes
 0, which is never allocated to an object, and wakes bump it while such
 waiters exist.  Other systems keep the ENOSYS stubs.
 
+The server reserves shm slots 0-255 for that table and wakes registered
+waiters (wine/fsync_openbsd.h).
+
 Index: server/fsync.c
 --- server/fsync.c.orig
 +++ server/fsync.c
-@@ -35,6 +35,10 @@
+@@ -35,6 +35,9 @@
  # include <sys/syscall.h>
  #endif
  #include <unistd.h>
 +#ifdef __OpenBSD__
-+# include <time.h>
-+# include <sys/futex.h>
++# include "wine/fsync_openbsd.h"
 +#endif
  
  #include "ntstatus.h"
  #define WIN32_NO_STATUS
-@@ -59,6 +63,9 @@ int fsync_check_support(void)
+@@ -59,6 +62,9 @@ int fsync_check_support(void)
  #ifdef __linux__
      syscall( __NR_futex_waitv, 0, 0, 0, 0, 0 );
      return getenv( "WINEFSYNC" ) && atoi(getenv( "WINEFSYNC" )) && errno != ENOSYS && errno != EPERM;
@@ -29,7 +31,19 @@ Index: server/fsync.c
  #else
      return 0;
  #endif
-@@ -185,7 +192,7 @@ static int alloc_shm_idx_from_word( unsi
+@@ -119,6 +125,11 @@ void fsync_init(void)
+     shm_idx_free_map = malloc( shm_idx_free_map_size * sizeof(*shm_idx_free_map) );
+     memset( shm_idx_free_map, 0xff, shm_idx_free_map_size * sizeof(*shm_idx_free_map) );
+     shm_idx_free_map[0] &= ~(uint64_t)1; /* Avoid allocating shm_index 0. */
++#ifdef __OpenBSD__
++    /* slots 0 .. FSYNC_RESERVED_SLOTS - 1 hold the waiter table (wine/fsync_openbsd.h) */
++    memset( shm_idx_free_map, 0, FSYNC_RESERVED_SLOTS / BITS_IN_FREE_MAP_WORD * sizeof(*shm_idx_free_map) );
++    shm_idx_free_search_start_hint = FSYNC_RESERVED_SLOTS / BITS_IN_FREE_MAP_WORD;
++#endif
+ 
+     atexit( shm_cleanup );
+ }
+@@ -185,7 +196,7 @@ static int alloc_shm_idx_from_word( unsi
  
  unsigned int fsync_alloc_shm( int low, int high )
  {
@@ -38,27 +52,18 @@ Index: server/fsync.c
      unsigned int i;
      int shm_idx;
      int *shm;
-@@ -310,7 +317,29 @@ int fsync_grab_shm_idx( unsigned int shm
+@@ -310,7 +321,20 @@ int fsync_grab_shm_idx( unsigned int shm
  
  static inline int futex_wake( int *addr, int val )
  {
 +#ifdef __linux__
      return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
 +#elif defined(__OpenBSD__)
-+    /* shm slot 0 holds the generation counter that clients waiting on
-+     * several objects wait on (no futex_waitv): int[0] generation, int[1]
-+     * number of such waiters */
-+    int *wait_any = get_shm( 0 );
++    /* no futex_waitv: also wake clients waiting on several futexes, see
++     * wine/fsync_openbsd.h */
 +    int ret = futex( (volatile uint32_t *)addr, FUTEX_WAKE, val, NULL, NULL );
 +
-+    /* order the caller's store to the object before reading the number of
-+     * waiters; waiters increment it before reading the object */
-+    __atomic_thread_fence( __ATOMIC_SEQ_CST );
-+    if (__atomic_load_n( &wait_any[1], __ATOMIC_SEQ_CST ))
-+    {
-+        __atomic_add_fetch( &wait_any[0], 1, __ATOMIC_SEQ_CST );
-+        futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAKE, INT_MAX, NULL, NULL );
-+    }
++    fsync_wake_waiters( get_shm( 0 ), addr );
 +    return ret;
 +#else
 +    /* fsync_check_support() never enables fsync without Linux futexes */

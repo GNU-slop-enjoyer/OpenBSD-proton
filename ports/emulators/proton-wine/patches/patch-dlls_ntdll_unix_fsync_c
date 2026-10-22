@@ -5,6 +5,10 @@ futex_waitv: single-object waits use FUTEX_WAIT; waits on several futexes
 0, which is never allocated to an object, and wakes bump it while such
 waiters exist.  Other systems keep the ENOSYS stubs.
 
+Multi-object waiters register in a table in reserved shm slots with a
+bucket mask and sleep on their own futex word, so a wake only wakes the
+waiters of that futex (wine/fsync_openbsd.h).
+
 Index: dlls/ntdll/unix/fsync.c
 --- dlls/ntdll/unix/fsync.c.orig
 +++ dlls/ntdll/unix/fsync.c
@@ -16,22 +20,56 @@ Index: dlls/ntdll/unix/fsync.c
  static inline int futex_wait_multiple( const struct futex_waitv *futexes,
          int count, const struct timespec64 *end, clockid_t clock_id )
  {
-@@ -151,6 +152,119 @@ static inline int futex_wake( int *addr,
+@@ -151,6 +152,156 @@ static inline int futex_wake( int *addr,
  {
      return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
  }
 +#elif defined(__OpenBSD__)
 +#include <sched.h>
-+#include <time.h>
-+#include <sys/futex.h>
++#include "wine/fsync_openbsd.h"
 +
-+/* OpenBSD has futex(2), and shared futexes work across processes on the
-+ * shm_open() mapping, but there is no futex_waitv.  A wait on several futexes
-+ * waits instead on a generation counter in shm slot 0 (never allocated to an
-+ * object): int[0] is the generation, int[1] the number of such waiters.  A
-+ * wake bumps the generation while there are waiters; they then recheck their
-+ * objects (fsync's wait loops treat any return as "recheck"). */
-+static int *wait_any;
++/* No futex_waitv: see wine/fsync_openbsd.h.  fsync's wait loops treat any
++ * return other than ETIMEDOUT as "recheck the objects". */
++static int *wait_any;   /* shm slot 0 */
++
++static int futex_wait_multiple_generation( const struct futex_waitv *futexes, int count,
++                                           const struct timespec *ts )
++{
++    int i, gen, ret;
++
++    gen = __atomic_load_n( &wait_any[0], __ATOMIC_SEQ_CST );
++    __atomic_add_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    for (i = 0; i < count; i++)
++    {
++        if (__atomic_load_n( (int *)u64_to_ptr(futexes[i].uaddr), __ATOMIC_SEQ_CST ) != (int)futexes[i].val)
++        {
++            __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++            errno = EAGAIN;
++            return -1;
++        }
++    }
++    ret = futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAIT, gen, ts, NULL );
++    __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    return ret;
++}
++
++static struct fsync_waiter *get_waiter( int owner )
++{
++    struct fsync_waiter *waiters = (struct fsync_waiter *)(wait_any + 4);
++    unsigned int i, start = (unsigned int)owner % FSYNC_WAITERS;
++
++    for (i = 0; i < FSYNC_WAITERS; i++)
++    {
++        struct fsync_waiter *waiter = &waiters[(start + i) % FSYNC_WAITERS];
++        int expected = 0;
++
++        if (__atomic_load_n( &waiter->owner, __ATOMIC_RELAXED )) continue;
++        if (__atomic_compare_exchange_n( &waiter->owner, &expected, owner, FALSE,
++                                         __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ))
++            return waiter;
++    }
++    return NULL;
++}
 +
 +static int futex_timeout( const struct timespec64 *end, clockid_t clock_id, struct timespec *ts )
 +{
@@ -56,8 +94,10 @@ Index: dlls/ntdll/unix/fsync.c
 +static inline int futex_wait_multiple( const struct futex_waitv *futexes,
 +        int count, const struct timespec64 *end, clockid_t clock_id )
 +{
++    struct fsync_waiter *waiter;
 +    struct timespec ts;
-+    int i, gen, ret;
++    uint64_t mask = 0;
++    int i, ret;
 +
 +    if (!futexes)  /* probe from fsync_init() */
 +    {
@@ -87,19 +127,27 @@ Index: dlls/ntdll/unix/fsync.c
 +    if (count == 1)
 +        return futex( u64_to_ptr(futexes[0].uaddr), FUTEX_WAIT, futexes[0].val, end ? &ts : NULL, NULL );
 +
-+    gen = __atomic_load_n( &wait_any[0], __ATOMIC_SEQ_CST );
-+    __atomic_add_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    if (!(waiter = get_waiter( ntdll_get_thread_data()->unix_tid ? ntdll_get_thread_data()->unix_tid : 1 )))
++        return futex_wait_multiple_generation( futexes, count, end ? &ts : NULL );
++
++    for (i = 0; i < count; i++) mask |= fsync_futex_bucket( u64_to_ptr(futexes[i].uaddr) );
++    __atomic_store_n( &waiter->wake, 0, __ATOMIC_SEQ_CST );
++    __atomic_store_n( &waiter->mask, mask, __ATOMIC_SEQ_CST );
++    __atomic_add_fetch( &wait_any[2], 1, __ATOMIC_SEQ_CST );
 +    for (i = 0; i < count; i++)
 +    {
 +        if (__atomic_load_n( (int *)u64_to_ptr(futexes[i].uaddr), __ATOMIC_SEQ_CST ) != (int)futexes[i].val)
 +        {
-+            __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
 +            errno = EAGAIN;
-+            return -1;
++            ret = -1;
++            goto done;
 +        }
 +    }
-+    ret = futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAIT, gen, end ? &ts : NULL, NULL );
-+    __atomic_sub_fetch( &wait_any[1], 1, __ATOMIC_SEQ_CST );
++    ret = futex( (volatile uint32_t *)&waiter->wake, FUTEX_WAIT, 0, end ? &ts : NULL, NULL );
++done:
++    __atomic_store_n( &waiter->mask, 0, __ATOMIC_SEQ_CST );
++    __atomic_sub_fetch( &wait_any[2], 1, __ATOMIC_SEQ_CST );
++    __atomic_store_n( &waiter->owner, 0, __ATOMIC_SEQ_CST );
 +    return ret;
 +}
 +
@@ -107,14 +155,7 @@ Index: dlls/ntdll/unix/fsync.c
 +{
 +    int ret = futex( (volatile uint32_t *)addr, FUTEX_WAKE, val, NULL, NULL );
 +
-+    /* order the caller's store to the object before reading the number of
-+     * waiters; waiters increment it before reading the object */
-+    __atomic_thread_fence( __ATOMIC_SEQ_CST );
-+    if (__atomic_load_n( &wait_any[1], __ATOMIC_SEQ_CST ))
-+    {
-+        __atomic_add_fetch( &wait_any[0], 1, __ATOMIC_SEQ_CST );
-+        futex( (volatile uint32_t *)&wait_any[0], FUTEX_WAKE, INT_MAX, NULL, NULL );
-+    }
++    fsync_wake_waiters( wait_any, addr );
 +    return ret;
 +}
 +#else
@@ -136,7 +177,7 @@ Index: dlls/ntdll/unix/fsync.c
  
  struct fsync
  {
-@@ -456,7 +570,7 @@ void fsync_init( DWORD pid )
+@@ -456,7 +607,7 @@ void fsync_init( DWORD pid )
  
  
      fsync_enabled = 1;
@@ -145,7 +186,7 @@ Index: dlls/ntdll/unix/fsync.c
      if (errno == ENOSYS || errno == EPERM)
      {
          ERR("Server is running with WINEFSYNC but this process can't use __NR_futex_waitv.\n");
-@@ -483,6 +597,9 @@ void fsync_init( DWORD pid )
+@@ -483,6 +634,9 @@ void fsync_init( DWORD pid )
  
      current_pid = pid;
      assert( current_pid );
