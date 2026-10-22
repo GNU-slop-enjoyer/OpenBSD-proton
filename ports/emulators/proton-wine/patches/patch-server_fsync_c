@@ -38,7 +38,7 @@ Index: server/fsync.c
      unsigned int i;
      int shm_idx;
      int *shm;
-@@ -310,7 +317,26 @@ int fsync_grab_shm_idx( unsigned int shm
+@@ -310,7 +317,29 @@ int fsync_grab_shm_idx( unsigned int shm
  
  static inline int futex_wake( int *addr, int val )
  {
@@ -51,6 +51,9 @@ Index: server/fsync.c
 +    int *wait_any = get_shm( 0 );
 +    int ret = futex( (volatile uint32_t *)addr, FUTEX_WAKE, val, NULL, NULL );
 +
++    /* order the caller's store to the object before reading the number of
++     * waiters; waiters increment it before reading the object */
++    __atomic_thread_fence( __ATOMIC_SEQ_CST );
 +    if (__atomic_load_n( &wait_any[1], __ATOMIC_SEQ_CST ))
 +    {
 +        __atomic_add_fetch( &wait_any[0], 1, __ATOMIC_SEQ_CST );

@@ -113,7 +113,7 @@ Index: dlls/ntdll/unix/sync.c
 + * finer timer resolution (timeBeginPeriod(1), as games with frame limiters
 + * do), or WINE_PRECISE_SLEEP=1 is set, sleep in the kernel only while more
 + * than two ticks remain and yield the CPU for the rest. */
-+static BOOL use_precise_sleep(void)
++BOOL use_precise_sleep(void)
 +{
 +    static int setting = -1;
 +

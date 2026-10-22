@@ -1,10 +1,23 @@
 OpenBSD declarations: virtual_set_stack_mapping(), and the OpenBSD fields
 and helpers from emulators/wine.
 
+ntdll_thread_data.unix_tid (relay requests for the calling thread),
+use_precise_sleep() for fsync timed waits.
+
 Index: dlls/ntdll/unix/unix_private.h
 --- dlls/ntdll/unix/unix_private.h.orig
 +++ dlls/ntdll/unix/unix_private.h
-@@ -256,6 +256,10 @@ extern void process_exit_wrapper( int st
+@@ -117,6 +117,9 @@ struct ntdll_thread_data
+     void                     *param;         /* thread entry point parameter */
+     void                     *jmp_buf;       /* setjmp buffer for exception handling */
+     int                      *fsync_apc_futex;
++#ifdef __OpenBSD__
++    int                       unix_tid;      /* thread id, for signal relay requests */
++#endif
+ };
+ 
+ C_ASSERT( sizeof(struct ntdll_thread_data) <= sizeof(((TEB *)0)->GdiTebBatch) );
+@@ -256,6 +259,10 @@ extern void process_exit_wrapper( int st
  extern size_t server_init_process(void);
  extern void server_init_process_done(void);
  extern void server_init_thread( void *entry_point, BOOL *suspend );
@@ -15,7 +28,17 @@ Index: dlls/ntdll/unix/unix_private.h
  extern int server_pipe( int fd[2] );
  
  extern void fpux_to_fpu( I386_FLOATING_SAVE_AREA *fpu, const XSAVE_FORMAT *fpux );
-@@ -334,6 +338,21 @@ extern void virtual_fill_image_informati
+@@ -326,6 +333,9 @@ extern BOOL virtual_check_buffer_for_rea
+ extern BOOL virtual_check_buffer_for_write( void *ptr, SIZE_T size );
+ extern SIZE_T virtual_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
+ extern NTSTATUS virtual_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );
++#ifdef __OpenBSD__
++extern BOOL use_precise_sleep(void);
++#endif
+ extern void virtual_set_force_exec( BOOL enable );
+ extern void virtual_enable_write_exceptions( BOOL enable );
+ extern void virtual_set_large_address_space(void);
+@@ -334,6 +344,21 @@ extern void virtual_fill_image_informati
  extern void *get_builtin_so_handle( void *module );
  extern NTSTATUS load_builtin_unixlib( void *module, const char *name );
  
