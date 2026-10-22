@@ -49,6 +49,18 @@ blockers, next action.
   bundle, `patches.orig` the original patches); batch 4 (`%gs` padding)
   added to the bundle files afterwards.
 
+### Later still (p16 → p17, runner)
+- p16: precise timed waits on the server path (packaged, installed, tested).
+- p17 (sources only): wineserver request trace NULL for %.*s.
+- emulators-wine bundle: batches 1-3 tested as local wine-11.19p4; batch 4
+  (%gs padding) and 5 (precise server waits, tested in the 11.19 build
+  tree); winex11 NULL Xkb variant (upstream bug, syslog noise).
+- winetest-run.sh: duration column, `empty` status, UTF-8 locale, scratch
+  cwd. Full run p16 + fsync: 226 pass / 45 fail / 5 crash / 1 timeout /
+  1 empty (`docs/results/winetest-proton-wine-p16-fsync.txt`).
+- Found: Proton heap corruption through a symlink to a volume mount point
+  (kernel32 volume, Linux too) — open, see COMPATIBILITY.
+
 ### Open / next actions
 1. Done 2026-10-22: wine-11.19p4 (batches 1-3) tested, results in the
    bundle README; `/usr/ports/emulators/wine` restored (installed package
