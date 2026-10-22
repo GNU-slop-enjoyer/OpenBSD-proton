@@ -4,7 +4,7 @@ portability and migrations with upstream.
 Index: dlls/ntdll/unix/sig_openbsd.h
 --- dlls/ntdll/unix/sig_openbsd.h.orig
 +++ dlls/ntdll/unix/sig_openbsd.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,46 @@
 +/*
 + * OpenBSD cross process thread signals
 + *
@@ -41,6 +41,10 @@ Index: dlls/ntdll/unix/sig_openbsd.h
 +
 +/* On SIGUSR2, drain server requests and relay SIGINT, SIGUSR1 or SIGQUIT to registered threads. */
 +extern void forward_thread_signal(void);
++
++/* After a server call: deliver requests for this thread now, as Linux delivers a
++ * signal the server sent during the call when the call returns. */
++extern void claim_own_signal_targets( int tid );
 +
 +/* map the array the server leaves the targets in. server_dir - its directory */
 +extern void init_signal_targets( const char *server_dir, unsigned int process_id );

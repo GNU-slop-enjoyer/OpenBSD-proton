@@ -54,6 +54,11 @@ if [ "$(locale charmap 2>/dev/null)" != UTF-8 ]; then
 	fi
 fi
 
+# In-process synchronization (fsync, on futex(2)) as Proton enables it,
+# unless PROTON_NO_FSYNC is set.  Processes follow the setting of the
+# prefix's running wineserver.
+nonzero "${PROTON_NO_FSYNC:-}" || export WINEFSYNC=1
+
 export WINEPREFIX=${PROTON_PREFIX:-${WINEPREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/proton-openbsd/pfx}}
 SYS32=$WINEPREFIX/drive_c/windows/system32
 

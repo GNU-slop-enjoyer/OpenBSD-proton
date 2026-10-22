@@ -1,3 +1,243 @@
+diff -ruN -x '*.orig' wine1119-base/dlls/kernel32/sync.c wine1119-chg/dlls/kernel32/sync.c
+--- a/dlls/kernel32/sync.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/kernel32/sync.c	2026-10-22 02:19:20.741036277 +0200
+@@ -831,17 +831,27 @@
+     return 0;
+ }
+ 
++/* number of outstanding timeBeginPeriod() calls with a period finer than
++ * 10 ms; ntdll is told while there are any (NtSetTimerResolution), which
++ * matters where the host's timers are coarser than that (OpenBSD) */
++static LONG fine_period_count;
++
+ /******************************************************************************
+  *		timeBeginPeriod (KERNEL32.@)
+  */
+ MMRESULT WINAPI timeBeginPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedIncrement( &fine_period_count ) == 1)
++        NtSetTimerResolution( period * 10000, TRUE, &current );
++
+     return 0;
+ }
+ 
+@@ -850,12 +860,17 @@
+  */
+ MMRESULT WINAPI timeEndPeriod(UINT period)
+ {
++    ULONG current;
++
+     if (period < MMSYSTIME_MININTERVAL || period > MMSYSTIME_MAXINTERVAL)
+         return TIMERR_NOCANDO;
+ 
+     if (period > MMSYSTIME_MININTERVAL)
+         WARN("Stub; we set our timer resolution at minimum\n");
+ 
++    if (period < 10 && InterlockedDecrement( &fine_period_count ) == 0)
++        NtSetTimerResolution( 0, FALSE, &current );
++
+     return 0;
+ }
+ 
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/file.c wine1119-chg/dlls/ntdll/unix/file.c
+--- a/dlls/ntdll/unix/file.c	2026-10-21 10:30:15.217697928 +0200
++++ b/dlls/ntdll/unix/file.c	2026-10-22 04:24:55.720617335 +0200
+@@ -185,6 +185,12 @@
+ #define XATTR_ATTRIBS_MASK      (FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)
+ 
+ #define XATTR_REPARSE XATTR_USER_PREFIX "WINEREPARSE"
++#ifdef __OpenBSD__
++/* Without extended attributes the reparse data of a file is the content of
++ * the renamed "name?" file, and that of a directory (empty otherwise) is kept
++ * in this file inside it. */
++#define REPARSE_DIR_FILE ".wine-reparse"
++#endif
+ 
+ struct file_identity
+ {
+@@ -1594,6 +1600,9 @@
+     WCHAR long_nameW[MAX_DIR_ENTRY_LEN + 1];
+     WCHAR short_nameW[13];
+ 
++#ifdef __OpenBSD__
++    if (!strcmp( long_name, REPARSE_DIR_FILE )) return TRUE;  /* data of a directory reparse point */
++#endif
+     long_len = ntdll_umbstowcs( long_name, strlen(long_name), long_nameW, ARRAY_SIZE(long_nameW) );
+     if (long_len == ARRAY_SIZE(long_nameW)) return TRUE;
+     if (long_nameW[long_len - 1] == '?') --long_len;
+@@ -1679,6 +1688,15 @@
+     ssize_t ret;
+ 
+     if (fstat( fd, &st ) == -1) return -1;
++    if (S_ISDIR(st.st_mode))
++    {
++        int data_fd = openat( fd, REPARSE_DIR_FILE, O_RDONLY | O_CLOEXEC | O_NOFOLLOW );
++
++        if (data_fd == -1) return -1;
++        ret = read_symlink_reparse( data_fd, buffer, size );
++        close( data_fd );
++        return ret;
++    }
+     if (!S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > size) goto invalid;
+     do ret = pread( fd, buffer, size, 0 ); while (ret == -1 && errno == EINTR);
+     if (ret == -1) return -1;
+@@ -1715,7 +1733,12 @@
+ 
+ #ifdef __OpenBSD__
+     attr_len = -1;
+-    if (S_ISREG(st->st_mode) && st->st_size > 0 && st->st_size <= sizeof(buffer))
++    if (S_ISDIR(st->st_mode))
++    {
++        /* only the directory of a reparse point has the data file */
++        attr_len = read_symlink_reparse( fd, buffer, sizeof(buffer) );
++    }
++    else if (S_ISREG(st->st_mode) && st->st_size > 0 && st->st_size <= sizeof(buffer))
+     {
+         char *name;
+         size_t len;
+@@ -1848,7 +1871,8 @@
+ 
+ #ifdef __OpenBSD__
+     attr_len = -1;
+-    if (len && path[len - 1] == '?' && S_ISREG(st->st_mode))
++    while (len > 1 && path[len - 1] == '/') len--;  /* "dir?/" */
++    if (len && path[len - 1] == '?' && (S_ISREG(st->st_mode) || S_ISDIR(st->st_mode)))
+     {
+         int fd = open( path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK );
+         if (fd != -1)
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/gs_openbsd.c wine1119-chg/dlls/ntdll/unix/gs_openbsd.c
+--- a/dlls/ntdll/unix/gs_openbsd.c	2026-10-21 10:30:15.224050662 +0200
++++ b/dlls/ntdll/unix/gs_openbsd.c	2026-10-22 04:53:45.690506756 +0200
+@@ -527,6 +527,10 @@
+ /* Code building constants */
+ #define JMP_REL32           0xe9    /* used to replace the command and then jump back from the stub */
+ #define JMP_REL32_LEN       5       /* length of JMP_REL32 - e9 and 32 bits of rel jump offset */
++#define JMP_REL8            0xeb    /* short jump to a pad, for instructions shorter than JMP_REL32_LEN */
++#define JMP_REL8_LEN        2
++#define RET                 0xc3
++#define GS_PAD_ALIGN        16      /* functions start 16-byte aligned; padding before them is never run */
+ #define JMP_RIP             0xff    /* jmp *0(%rip) */
+ #define INT3                0xcc    /* we are using int3 to pad our codestubs and source of our jumps to trap any stray jumps */
+ #define LEA                 0x8d    /* lea */
+@@ -819,6 +823,20 @@
+     struct gs_stub *stub;
+     int rel;
+ 
++    if (avail >= JMP_REL8_LEN && bytes[0] == JMP_REL8)
++    {
++        /* short jump to a pad with a jump to the stub (see find_gs_pad) */
++        BYTE *pad = rip + JMP_REL8_LEN + (signed char)bytes[1];
++        BYTE pad_bytes[JMP_REL32_LEN];
++
++        if (virtual_uninterrupted_read_memory( pad, pad_bytes, sizeof(pad_bytes) ) != sizeof(pad_bytes) ||
++            pad_bytes[0] != JMP_REL32) return FALSE;
++        memcpy( &rel, pad_bytes + 1, 4 );
++        if (!(stub = virtual_code_stub_slot( pad + JMP_REL32_LEN + rel )) || stub->site != rip) return FALSE;
++        return decode_gs_insn( &insn, stub->insn, stub->insn_len) &&
++            get_gs_insn_offset( &insn, ucontext ) == fault_addr;
++    }
++
+     if (avail >= JMP_REL32_LEN && bytes[0] == JMP_REL32)
+     {
+         memcpy( &rel, bytes + 1, 4 );
+@@ -836,6 +854,53 @@
+ 
+ 
+ /***********************************************************************
++ *           find_gs_pad
++ *
++ * An instruction shorter than a jmp rel32 has room for a short jump (eb rel8).
++ * Look within its reach for int3 padding between functions to hold the
++ * jmp rel32 to the stub: a run of int3 right after a ret that ends where the
++ * next function starts (16-byte aligned).  Such padding is never executed,
++ * unlike int3 that follows a conditional jump (retguard traps).
++ * Returns the pad address or NULL.
++ */
++static BYTE *find_gs_pad( BYTE *site, unsigned int insn_len )
++{
++    BYTE buf[256 + JMP_REL32_LEN];
++    BYTE *next = site + JMP_REL8_LEN;  /* the rel8 is relative to this */
++    BYTE *start = next - 128;
++    unsigned int avail, i, run;
++
++    /* the window may begin in an unmapped page; read from the site instead then */
++    if ((avail = virtual_uninterrupted_read_memory( start, buf, sizeof(buf) )) < sizeof(buf) / 2)
++    {
++        start = site;
++        avail = virtual_uninterrupted_read_memory( start, buf, 128 + JMP_REL8_LEN );
++    }
++
++    for (i = 1, run = 0; i < avail; i++)
++    {
++        BYTE *addr = start + i;
++
++        if (buf[i] != INT3) { run = 0; continue; }
++        if (!run && buf[i - 1] != RET) continue;  /* only runs right after a ret */
++        run++;
++        if (run < JMP_REL32_LEN) continue;
++        /* addr is the 5th int3 of the run: the pad is addr - 4; check where the run ends */
++        {
++            BYTE *pad = addr - (JMP_REL32_LEN - 1), *end = addr + 1;
++            unsigned int j = i + 1;
++
++            while (j < avail && buf[j] == INT3) { j++; end++; }
++            if (j == avail || (ULONG_PTR)end % GS_PAD_ALIGN) { run = 0; continue; }
++            if (pad + JMP_REL32_LEN > site && pad < site + insn_len) { run = 0; continue; }
++            if (pad - next < -128 || pad - next > 127) { run = 0; continue; }
++            return pad;
++        }
++    }
++    return NULL;
++}
++
++/***********************************************************************
+  *           gs_handle_fault
+  * Page fault handler
+  */
+@@ -913,6 +978,35 @@
+         }
+     }
+ 
++    /* too short for a jmp rel32: a short jump to int3 padding that holds one */
++    if (insn.len >= JMP_REL8_LEN && insn.len < JMP_REL32_LEN)
++    {
++        BYTE *pad = find_gs_pad( rip, insn.len );
++        BYTE pad_old[JMP_REL32_LEN], pad_new[JMP_REL32_LEN];
++
++        if (pad) rel = slot->code - (pad + JMP_REL32_LEN);
++        if (pad && rel == (int)rel)
++        {
++            memset( pad_old, INT3, sizeof(pad_old) );
++            pad_new[0] = JMP_REL32;
++            memcpy( pad_new + 1, &rel, 4 );
++            if (virtual_patch_code( pad, pad_old, pad_new, JMP_REL32_LEN ) == PATCH_DONE)
++            {
++                new_bytes[0] = JMP_REL8;
++                new_bytes[1] = (BYTE)(pad - (rip + JMP_REL8_LEN));
++                switch (virtual_patch_code( rip, insn.bytes, new_bytes, JMP_REL8_LEN ))
++                {
++                    case PATCH_DONE:
++                    case PATCH_CHANGED: /* someone else patched the site; the pad keeps pointing to our stub */
++                        return TRUE;
++                    case PATCH_FAILED:
++                        break;
++                }
++                /* site can't be patched: leave the pad (nothing jumps there) and redirect */
++            }
++        }
++    }
++
+     /* case 4 - unpatchable redirect */
+     if (!(used = add_gs_redirect( slot, &insn )))
+     {
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/ntdll/unix/process.c
 --- a/dlls/ntdll/unix/process.c	2026-10-21 10:30:15.232094899 +0200
 +++ b/dlls/ntdll/unix/process.c	2026-10-21 18:02:20.313672502 +0200
@@ -38,8 +278,24 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/
  void fill_vm_counters( VM_COUNTERS_EX *pvmi, int unix_pid )
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/ntdll/unix/server.c
 --- a/dlls/ntdll/unix/server.c	2026-10-21 10:30:15.236738912 +0200
-+++ b/dlls/ntdll/unix/server.c	2026-10-21 18:02:20.316833314 +0200
-@@ -706,6 +706,15 @@
++++ b/dlls/ntdll/unix/server.c	2026-10-22 02:19:20.777496925 +0200
+@@ -289,7 +289,14 @@
+     unsigned int ret;
+ 
+     if ((ret = send_request( data->request_fd, req ))) return ret;
+-    return wait_reply( data->reply_fd, req );
++    ret = wait_reply( data->reply_fd, req );
++#ifdef __OpenBSD__
++    /* A system APC queued to this thread while the server handled the request
++     * (e.g. completing a cancelled I/O) must run before the caller continues,
++     * as it does on Linux; the SIGUSR2 relay may reach us later. */
++    claim_own_signal_targets( data->unix_tid );
++#endif
++    return ret;
+ }
+ 
+ 
+@@ -706,6 +713,15 @@
          break;
      }
  #ifdef __OpenBSD__
@@ -55,7 +311,7 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
      case APC_COPY_MEMORY:
      {
          HANDLE section = wine_server_ptr_handle( call->copy_memory.handle );
-@@ -724,12 +733,29 @@
+@@ -724,12 +740,29 @@
                                                               &view_size, ViewShare, 0, PAGE_READWRITE );
              if (!result->copy_memory.status)
              {
@@ -91,7 +347,15 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
                  NtUnmapViewOfSection( NtCurrentProcess(), view );
              }
          }
-@@ -1834,6 +1860,9 @@
+@@ -1727,6 +1760,7 @@
+         req->unix_tid    = get_unix_tid();
+ #ifdef __OpenBSD__
+         add_signal_tid( req->unix_tid );
++        data->unix_tid = req->unix_tid;
+ #endif
+         req->reply_fd    = reply_pipe;
+         req->wait_fd     = data->wait_fd[1];
+@@ -1834,6 +1868,9 @@
          req->peb = teb64 ? teb64->Peb : wine_server_client_ptr( peb );
          status = wine_server_call( req );
          data->suspend = reply->suspend;
@@ -100,6 +364,94 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/server.c wine1119-chg/dlls/n
 +#endif
      }
      SERVER_END_REQ;
+ 
+@@ -1870,6 +1907,7 @@
+         req->unix_tid  = get_unix_tid();
+ #ifdef __OpenBSD__
+         add_signal_tid( req->unix_tid );
++        data->unix_tid = req->unix_tid;
+ #endif
+         req->teb       = wine_server_client_ptr( teb64 ? (void *)teb64 : (void *)data->teb );
+         req->reply_fd  = reply_pipe;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/signal_x86_64.c wine1119-chg/dlls/ntdll/unix/signal_x86_64.c
+--- a/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 10:30:15.241031287 +0200
++++ b/dlls/ntdll/unix/signal_x86_64.c	2026-10-21 22:11:46.263123983 +0200
+@@ -969,7 +969,13 @@
+     context->R15    = R15_sig(sigcontext);
+     context->Rip    = RIP_sig(sigcontext);
+     context->SegCs  = CS_sig(sigcontext);
++#ifdef __OpenBSD__
++    /* the kernel does not save segment selectors in the sigcontext (sc_fs is
++     * 0); the handler runs with the interrupted code's %fs */
++    __asm__( "movw %%fs,%0" : "=r" (context->SegFs) );
++#else
+     context->SegFs  = FS_sig(sigcontext);
++#endif
+     context->EFlags = EFL_sig(sigcontext);
+     context->SegDs  = ds64_sel;
+     context->SegEs  = ds64_sel;
+@@ -2905,6 +2911,15 @@
+         }
+         else thread_data->fs = fs32_sel;
+     }
++#ifdef __OpenBSD__
++    else
++    {
++        /* reported as SegFs in contexts taken from syscall frames */
++        USHORT fs;
++        __asm__( "movw %%fs,%0" : "=r" (fs) );
++        thread_data->fs = fs;
++    }
++#endif
+     thread_data->frame_size = frame_size;
+     return STATUS_SUCCESS;
+ }
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sig_openbsd.c wine1119-chg/dlls/ntdll/unix/sig_openbsd.c
+--- a/dlls/ntdll/unix/sig_openbsd.c	2026-10-21 10:30:15.246218261 +0200
++++ b/dlls/ntdll/unix/sig_openbsd.c	2026-10-22 02:19:20.724548800 +0200
+@@ -121,6 +121,29 @@
+     errno = saved_errno;
+ }
+ 
++void claim_own_signal_targets( int tid )
++{
++    int saved_errno = errno;
++    unsigned int i;
++
++    if (!signal_targets || tid <= 0) return;
++
++    for (i = 0; i < SIGNAL_TARGETS_COUNT; i++)
++    {
++        uint64_t request = __atomic_load_n( &signal_targets[i], __ATOMIC_RELAXED );
++        unsigned int sig = request >> 32;
++
++        if (!request || (int)(uint32_t)request != tid) continue;
++        if (!__atomic_compare_exchange_n( &signal_targets[i], &request, 0, FALSE,
++                                          __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ))
++            continue;  /* the SIGUSR2 relay took it */
++        if (sig != SIGINT && sig != SIGUSR1 && sig != SIGQUIT) continue;
++        /* the caller blocks these signals; it is delivered when it unblocks them */
++        thrkill( tid, sig, NULL );
++    }
++    errno = saved_errno;
++}
++
+ void init_signal_targets( const char *server_dir, unsigned int process_id )
+ {
+     void *ptr;
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sig_openbsd.h wine1119-chg/dlls/ntdll/unix/sig_openbsd.h
+--- a/dlls/ntdll/unix/sig_openbsd.h	2026-10-21 10:30:15.249356612 +0200
++++ b/dlls/ntdll/unix/sig_openbsd.h	2026-10-22 02:19:20.724614638 +0200
+@@ -35,6 +35,10 @@
+ /* On SIGUSR2, drain server requests and relay SIGINT, SIGUSR1 or SIGQUIT to registered threads. */
+ extern void forward_thread_signal(void);
+ 
++/* After a server call: deliver requests for this thread now, as Linux delivers a
++ * signal the server sent during the call when the call returns. */
++extern void claim_own_signal_targets( int tid );
++
+ /* map the array the server leaves the targets in. server_dir - its directory */
+ extern void init_signal_targets( const char *server_dir, unsigned int process_id );
  
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/ntdll/unix/socket.c
 --- a/dlls/ntdll/unix/socket.c	2026-10-02 23:15:08.000000000 +0200
@@ -270,6 +622,149 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/n
  
          case IOCTL_AFD_WINE_SET_TCP_NODELAY:
              return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-chg/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c	2026-10-02 23:15:08.000000000 +0200
++++ b/dlls/ntdll/unix/sync.c	2026-10-22 07:03:22.658430361 +0200
+@@ -2300,6 +2300,54 @@
+ }
+ 
+ 
++#ifdef __OpenBSD__
++static BOOL use_precise_sleep(void);
++
++/* Server timeouts end on a clock tick (100 Hz), so a 1 ms wait takes 20 ms.
++ * In precise sleep mode (see use_precise_sleep) wait in the server only
++ * while more than two ticks remain, then poll the objects every 100 us and
++ * yield the CPU in between.  Only for waits that can be repeated (not
++ * signal-and-wait). */
++static unsigned int precise_server_wait( const union select_op *select_op, data_size_t size,
++                                         UINT flags, const LARGE_INTEGER *timeout )
++{
++    LARGE_INTEGER now, wait;
++    timeout_t when, next;
++    unsigned int ret;
++
++    if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE || !timeout->QuadPart || !use_precise_sleep())
++        return server_wait( select_op, size, flags, timeout );
++
++    if ((when = timeout->QuadPart) < 0)
++    {
++        NtQuerySystemTime( &now );
++        when = now.QuadPart - when;
++    }
++    for (;;)
++    {
++        NtQuerySystemTime( &now );
++        if (when - now.QuadPart > 2 * TICKSPERSEC / 100)
++        {
++            wait.QuadPart = -(when - now.QuadPart - 2 * TICKSPERSEC / 100);
++            if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++            continue;
++        }
++        wait.QuadPart = 0;
++        if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++        next = now.QuadPart + TICKSPERSEC / 10000;
++        for (;;)
++        {
++            NtQuerySystemTime( &now );
++            if (now.QuadPart >= when) return STATUS_TIMEOUT;
++            if (now.QuadPart >= next) break;
++            sched_yield();
++        }
++    }
++}
++#else
++#define precise_server_wait server_wait
++#endif
++
+ /******************************************************************
+  *		NtWaitForMultipleObjects (NTDLL.@)
+  */
+@@ -2335,7 +2383,7 @@
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = type == WaitAll ? SELECT_WAIT_ALL : SELECT_WAIT;
+     for (i = 0; i < count; i++) select_op.wait.handles[i] = wine_server_obj_handle( handles[i] );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2361,7 +2409,7 @@
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = SELECT_WAIT;
+     select_op.wait.handles[0] = wine_server_obj_handle( handle );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2419,6 +2467,29 @@
+ /******************************************************************
+  *		NtDelayExecution (NTDLL.@)
+  */
++#ifdef __OpenBSD__
++/* resolution requested with NtSetTimerResolution(), in 100 ns units; 0 if none */
++static ULONG timer_resolution_request;
++
++/* OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout,
++ * so Sleep(1) takes 20 ms and Sleep(16) 30 ms.  When the process asked for a
++ * finer timer resolution (timeBeginPeriod(1), as games with frame limiters
++ * do), or WINE_PRECISE_SLEEP=1 is set, sleep in the kernel only while more
++ * than two ticks remain and yield the CPU for the rest. */
++static BOOL use_precise_sleep(void)
++{
++    static int setting = -1;
++
++    if (setting == -1)
++    {
++        const char *env = getenv( "WINE_PRECISE_SLEEP" );
++        setting = env && *env ? !!atoi( env ) : 2;
++    }
++    if (setting != 2) return setting;
++    return timer_resolution_request && timer_resolution_request < 100000;
++}
++#endif
++
+ NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeout )
+ {
+     unsigned int status = STATUS_SUCCESS;
+@@ -2428,7 +2499,7 @@
+     {
+         /* Since server_wait will result in an unconditional implicit yield,
+            we never return STATUS_NO_YIELD_PERFORMED */
+-        if ((status = server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
++        if ((status = precise_server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
+             status = STATUS_SUCCESS;
+         return status;
+     }
+@@ -2459,6 +2530,17 @@
+             NtQuerySystemTime( &now );
+             diff = (when - now.QuadPart + 9) / 10;
+             if (diff <= 0) break;
++#ifdef __OpenBSD__
++            if (use_precise_sleep())
++            {
++                if (diff <= 20000)  /* two ticks */
++                {
++                    sched_yield();
++                    continue;
++                }
++                diff -= 20000;
++            }
++#endif
+             tv.tv_sec  = diff / 1000000;
+             tv.tv_usec = diff % 1000000;
+             if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
+@@ -2569,6 +2651,9 @@
+     if (!has_request && !set)
+         return STATUS_TIMER_RESOLUTION_NOT_SET;
+     has_request = set;
++#ifdef __OpenBSD__
++    timer_resolution_request = set ? res : 0;
++#endif
+ 
+     return STATUS_SUCCESS;
+ }
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-chg/dlls/ntdll/unix/system.c
 --- a/dlls/ntdll/unix/system.c	2026-10-21 10:30:15.253397925 +0200
 +++ b/dlls/ntdll/unix/system.c	2026-10-21 18:02:20.315671572 +0200
@@ -354,6 +849,17 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/system.c wine1119-chg/dlls/n
  #endif
          if (cpus == 0)
          {
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/unix_private.h wine1119-chg/dlls/ntdll/unix/unix_private.h
+--- a/dlls/ntdll/unix/unix_private.h	2026-10-21 10:30:15.262353160 +0200
++++ b/dlls/ntdll/unix/unix_private.h	2026-10-22 02:19:20.755323720 +0200
+@@ -124,6 +124,7 @@
+     pthread_t    pthread_id;        /* pthread thread id */
+ #ifdef __OpenBSD__
+     void        *kernel_stack;
++    int          unix_tid;          /* thread id, for signal relay requests */
+ #endif
+     void        *jmp_buf;           /* setjmp buffer for exception handling */
+     void        *start;             /* thread entry point */
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/ntdll/unix/virtual.c
 --- a/dlls/ntdll/unix/virtual.c	2026-10-21 10:30:15.267697983 +0200
 +++ b/dlls/ntdll/unix/virtual.c	2026-10-21 15:25:01.391488651 +0200
@@ -418,6 +924,18 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/
  
      return STATUS_SUCCESS;
  }
+diff -ruN -x '*.orig' wine1119-base/dlls/winex11.drv/keyboard.c wine1119-chg/dlls/winex11.drv/keyboard.c
+--- a/dlls/winex11.drv/keyboard.c	2026-10-21 10:30:15.277701407 +0200
++++ b/dlls/winex11.drv/keyboard.c	2026-10-22 07:14:45.399210056 +0200
+@@ -2285,7 +2285,7 @@
+         TRACE( "Found group %u with name %s -> layout %s:%s, lang %04x, klid %08x\n", i, debugstr_a(names[i]),
+                debugstr_a(layout), debugstr_a(variant), lang, klid );
+ 
+-        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
++        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant ? variant : "" );
+         create_layout_from_xkb( i, buffer, lang, klid );
+ 
+         if (names[i]) XFree( names[i] );
 diff -ruN -x '*.orig' wine1119-base/dlls/ws2_32/unixlib.c wine1119-chg/dlls/ws2_32/unixlib.c
 --- a/dlls/ws2_32/unixlib.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/dlls/ws2_32/unixlib.c	2026-10-21 18:29:42.555193756 +0200
@@ -715,8 +1233,181 @@ diff -ruN -x '*.orig' wine1119-base/server/change.c wine1119-chg/server/change.c
          free( link );
 diff -ruN -x '*.orig' wine1119-base/server/fd.c wine1119-chg/server/fd.c
 --- a/server/fd.c	2026-10-21 10:30:15.301031353 +0200
-+++ b/server/fd.c	2026-10-21 15:24:20.071798905 +0200
-@@ -3131,6 +3131,12 @@
++++ b/server/fd.c	2026-10-22 04:24:55.723229838 +0200
+@@ -103,6 +103,12 @@
+ 
+ #include "winternl.h"
+ #include "winioctl.h"
++
++#ifdef __OpenBSD__
++/* Without extended attributes the reparse data of a directory (empty
++ * otherwise) is kept in this file inside it; see also ntdll's file.c. */
++#define REPARSE_DIR_FILE ".wine-reparse"
++#endif
+ #include "ddk/ntifs.h"
+ #include "ddk/wdm.h"
+ 
+@@ -1055,7 +1061,24 @@
+     struct stat st;
+     if (!stat( fd->unix_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
+     {
+-        if (S_ISDIR(st.st_mode)) rmdir( fd->unix_name );
++        if (S_ISDIR(st.st_mode))
++        {
++#ifdef __OpenBSD__
++            size_t len = strlen( fd->unix_name );
++            char *data_name;
++
++            /* a directory reparse point holds its data file */
++            if (len && fd->unix_name[len - 1] == '?' &&
++                (data_name = malloc( len + sizeof("/" REPARSE_DIR_FILE) )))
++            {
++                strcpy( data_name, fd->unix_name );
++                strcat( data_name, "/" REPARSE_DIR_FILE );
++                unlink( data_name );
++                free( data_name );
++            }
++#endif
++            rmdir( fd->unix_name );
++        }
+         else unlink( fd->unix_name );
+     }
+ }
+@@ -2307,6 +2330,9 @@
+     while (empty && (de = readdir( dir )))
+     {
+         if (!strcmp( de->d_name, "." ) || !strcmp( de->d_name, ".." )) continue;
++#ifdef __OpenBSD__
++        if (!strcmp( de->d_name, REPARSE_DIR_FILE )) continue;
++#endif
+         empty = 0;
+     }
+     closedir( dir );
+@@ -2430,6 +2456,7 @@
+     const REPARSE_DATA_BUFFER *data = get_req_data();
+     size_t offset = 0, size = get_req_data_size();
+     ssize_t written;
++    int data_fd, ret;
+ #endif
+ 
+     if (!fd->unix_name)
+@@ -2451,35 +2478,41 @@
+     }
+ 
+ #ifdef __OpenBSD__
+-    if (!S_ISREG(st.st_mode))
++    if (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))
+     {
+         set_error( STATUS_NOT_SUPPORTED );
+         return;
+     }
+     if (size < sizeof(*data) || size > MAXIMUM_REPARSE_DATA_BUFFER_SIZE ||
+-        (fd->unix_name[strlen(fd->unix_name) - 1] != '?' && st.st_size))
++        (S_ISREG(st.st_mode) && fd->unix_name[strlen(fd->unix_name) - 1] != '?' && st.st_size))
+     {
+         set_error( STATUS_IO_REPARSE_DATA_INVALID );
+         return;
+     }
+-    if (data->ReparseTag != IO_REPARSE_TAG_SYMLINK)
++    data_fd = S_ISDIR(st.st_mode)
++              ? openat( fd->unix_fd, REPARSE_DIR_FILE, O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600 )
++              : fd->unix_fd;
++    if (data_fd == -1)
+     {
+-        set_error( STATUS_NOT_SUPPORTED );
++        file_set_error();
+         return;
+     }
+     while (offset < size)
+     {
+-        written = pwrite( fd->unix_fd, (const char *)get_req_data() + offset, size - offset, offset );
++        written = pwrite( data_fd, (const char *)get_req_data() + offset, size - offset, offset );
+         if (written == -1 && errno == EINTR) continue;
+         if (written <= 0)
+         {
+             if (!written) errno = EIO;
+             file_set_error();
++            if (data_fd != fd->unix_fd) close( data_fd );
+             return;
+         }
+         offset += written;
+     }
+-    if (ftruncate( fd->unix_fd, size ) == -1)
++    ret = ftruncate( data_fd, size );
++    if (data_fd != fd->unix_fd) close( data_fd );
++    if (ret == -1)
+ #else
+     if (xattr_fset( fd->unix_fd, XATTR_REPARSE, get_req_data(), get_req_data_size() ) < 0)
+ #endif
+@@ -2516,6 +2549,7 @@
+     int ret;
+ #ifdef __OpenBSD__
+     struct stat st;
++    int data_fd;
+ #endif
+ 
+     if (!fd->unix_name)
+@@ -2548,17 +2582,29 @@
+         file_set_error();
+         return;
+     }
+-    if (!S_ISREG(st.st_mode))
++    if (S_ISDIR(st.st_mode))
++        data_fd = openat( fd->unix_fd, REPARSE_DIR_FILE, O_RDONLY | O_CLOEXEC | O_NOFOLLOW );
++    else if (S_ISREG(st.st_mode))
++        data_fd = fd->unix_fd;
++    else
+     {
+         set_error( STATUS_NOT_SUPPORTED );
+         return;
+     }
++    if (data_fd == -1 || (data_fd != fd->unix_fd && fstat( data_fd, &st ) == -1))
++    {
++        file_set_error();
++        if (data_fd != -1 && data_fd != fd->unix_fd) close( data_fd );
++        return;
++    }
+     if (st.st_size < sizeof(REPARSE_DATA_BUFFER) || st.st_size > sizeof(buffer))
+     {
+         set_error( STATUS_IO_REPARSE_DATA_INVALID );
++        if (data_fd != fd->unix_fd) close( data_fd );
+         return;
+     }
+-    do ret = pread( fd->unix_fd, buffer, sizeof(buffer), 0 ); while (ret == -1 && errno == EINTR);
++    do ret = pread( data_fd, buffer, sizeof(buffer), 0 ); while (ret == -1 && errno == EINTR);
++    if (data_fd != fd->unix_fd) close( data_fd );
+     if (ret >= 0 && ret != st.st_size)
+     {
+         set_error( STATUS_IO_REPARSE_DATA_INVALID );
+@@ -2622,17 +2668,17 @@
+     base_name[len - 1] = 0;
+ 
+ #ifdef __OpenBSD__
+-    if (data->ReparseTag != IO_REPARSE_TAG_SYMLINK)
+     {
+-        set_error( STATUS_IO_REPARSE_TAG_MISMATCH );
+-        free( base_name );
+-        return;
+-    }
+-    if (ftruncate( fd->unix_fd, 0 ) == -1)
+-    {
+-        file_set_error();
+-        free( base_name );
+-        return;
++        struct stat st;
++
++        if (fstat( fd->unix_fd, &st ) == -1 ||
++            (S_ISDIR(st.st_mode) ? unlinkat( fd->unix_fd, REPARSE_DIR_FILE, 0 )
++                                 : ftruncate( fd->unix_fd, 0 )) == -1)
++        {
++            file_set_error();
++            free( base_name );
++            return;
++        }
+     }
+ #endif
+     if (rename( fd->unix_name, base_name ) < 0)
+@@ -3131,6 +3177,12 @@
      }
  }
  
@@ -1031,3 +1722,15 @@ diff -ruN -x '*.orig' wine1119-base/server/sock.c wine1119-chg/server/sock.c
          allow_fd_caching( sock->fd );
  
          unix_len = sizeof(unix_addr);
+diff -ruN -x '*.orig' wine1119-base/server/trace.c wine1119-chg/server/trace.c
+--- a/server/trace.c	2026-10-02 23:15:08.000000000 +0200
++++ b/server/trace.c	2026-10-22 07:19:36.568822489 +0200
+@@ -670,7 +670,7 @@
+ 
+ static void dump_varargs_string( const char *prefix, data_size_t size )
+ {
+-    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, (const char *)cur_data );
++    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, size ? (const char *)cur_data : "" );
+     remove_data( size );
+ }
+ 

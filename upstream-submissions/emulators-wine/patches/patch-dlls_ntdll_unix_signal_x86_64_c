@@ -9,6 +9,9 @@ This file updates some OpenBSD-isms.
  ourselves. LOAD_TEB is a helper that loads TEB pointer into a registers
  of our choice
 
+Report the real %fs selector in contexts: OpenBSD's sigcontext carries no
+segment selectors (sc_fs is 0).
+
 Index: dlls/ntdll/unix/signal_x86_64.c
 --- dlls/ntdll/unix/signal_x86_64.c.orig
 +++ dlls/ntdll/unix/signal_x86_64.c
@@ -20,7 +23,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
  #include <stdlib.h>
  #include <stdarg.h>
  #include <stdio.h>
-@@ -82,6 +83,8 @@ extern void _thread_set_tsd_base(uint64_t);
+@@ -82,6 +83,8 @@ extern void _thread_set_tsd_base(uint64_
  #include "wine/list.h"
  #include "wine/asm.h"
  #include "unix_private.h"
@@ -74,7 +77,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
  #elif defined (__APPLE__)
  
  #include <i386/user_ldt.h>
-@@ -776,10 +817,67 @@ __ASM_GLOBAL_FUNC( clear_alignment_flag,
+@@ -776,6 +817,63 @@ __ASM_GLOBAL_FUNC( clear_alignment_flag,
                     __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                     "ret" )
  
@@ -87,7 +90,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +static BOOL is_breakpoint_trap( ucontext_t *sigcontext)
 +{
 +    const BYTE *ip = (const BYTE *)RIP_sig(sigcontext);
- 
++
 +    if (EFL_sig(sigcontext) & 0x100) return FALSE;
 +    /* not in a view - then can only be a breakpoint */
 +    if (!virtual_is_readable_page( ip - 1 )) return TRUE;
@@ -95,10 +98,10 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +    return virtual_is_readable_page( ip - 2 ) && ip[-2] == 0xcd && ip[-1] == 0x03; /* int $3 */
 +}
 +
- /***********************************************************************
-  *           init_handler
++/***********************************************************************
++ *           init_handler
 + * OpenBSD always zeroes sc_trapno and sc_err, we will rebuild them from the siginfo
-  */
++ */
 +static void fixup_sigcontext( siginfo_t *siginfo, ucontext_t *sigcontext )
 +{
 +    TRAP_sig(sigcontext) = siginfo->si_trapno;
@@ -135,14 +138,24 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +
 +#endif /* __OpenBSD__ */
 +
-+
-+/***********************************************************************
-+ *           init_handler
-+ */
- static inline struct thread_data *init_handler( void *sigcontext )
- {
-     struct thread_data *data = get_current_thread_data();
-@@ -2173,7 +2271,22 @@ static BOOL handle_syscall_trap( struct thread_data *d
+ 
+ /***********************************************************************
+  *           init_handler
+@@ -871,7 +969,13 @@ static void save_context( struct thread_
+     context->R15    = R15_sig(sigcontext);
+     context->Rip    = RIP_sig(sigcontext);
+     context->SegCs  = CS_sig(sigcontext);
++#ifdef __OpenBSD__
++    /* the kernel does not save segment selectors in the sigcontext (sc_fs is
++     * 0); the handler runs with the interrupted code's %fs */
++    __asm__( "movw %%fs,%0" : "=r" (context->SegFs) );
++#else
+     context->SegFs  = FS_sig(sigcontext);
++#endif
+     context->EFlags = EFL_sig(sigcontext);
+     context->SegDs  = ds64_sel;
+     context->SegEs  = ds64_sel;
+@@ -2173,6 +2277,21 @@ static BOOL handle_syscall_trap( struct
      return TRUE;
  }
  
@@ -160,12 +173,11 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +    return gs_handle_fault( ucontext, fault_addr );
 +}
 +#endif
- 
 +
+ 
  /***********************************************************************
   *           check_invalid_gsbase
-  *
-@@ -2282,6 +2395,11 @@ static void segv_handler( int signal, siginfo_t *sigin
+@@ -2282,6 +2401,11 @@ static void segv_handler( int signal, si
      struct xcontext context;
      EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)RIP_sig(sigcontext) };
  
@@ -177,7 +189,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      save_context( data, &context, sigcontext );
  
      switch(TRAP_sig(sigcontext))
-@@ -2317,7 +2435,11 @@ static void segv_handler( int signal, siginfo_t *sigin
+@@ -2317,7 +2441,11 @@ static void segv_handler( int signal, si
          rec.ExceptionInformation[0] = (ERROR_sig(sigcontext) >> 1) & 0x09;
          rec.ExceptionInformation[1] = (ULONG_PTR)siginfo->si_addr;
          if (!virtual_handle_fault( data, &rec, (void *)RSP_sig(sigcontext) ) ||
@@ -189,7 +201,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
          {
              leave_handler( data, sigcontext );
              return;
-@@ -2373,6 +2495,10 @@ static void trap_handler( int signal, siginfo_t *sigin
+@@ -2373,6 +2501,10 @@ static void trap_handler( int signal, si
      struct xcontext context;
      EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)RIP_sig(sigcontext) };
  
@@ -200,7 +212,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      if (handle_syscall_trap( data, sigcontext, siginfo )) return;
  
      save_context( data, &context, sigcontext );
-@@ -2420,6 +2546,10 @@ static void fpe_handler( int signal, siginfo_t *siginf
+@@ -2420,6 +2552,10 @@ static void fpe_handler( int signal, sig
      struct xcontext context;
      EXCEPTION_RECORD rec = { .ExceptionAddress = (void *)RIP_sig(sigcontext) };
  
@@ -211,7 +223,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      save_context( data, &context, sigcontext );
  
      switch (siginfo->si_code)
-@@ -2491,9 +2621,15 @@ static void fpe_handler( int signal, siginfo_t *siginf
+@@ -2491,9 +2627,15 @@ static void fpe_handler( int signal, sig
  static void int_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
  {
      ucontext_t *sigcontext = _sigcontext;
@@ -228,7 +240,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      if (p__wine_ctrl_routine)
      {
          if (!NtCreateThreadEx( &handle, THREAD_ALL_ACCESS, NULL, NtCurrentProcess(),
-@@ -2518,6 +2654,11 @@ static void abrt_handler( int signal, siginfo_t *sigin
+@@ -2518,6 +2660,11 @@ static void abrt_handler( int signal, si
                               .ExceptionFlags = EXCEPTION_NONCONTINUABLE,
                               .ExceptionAddress = (void *)RIP_sig(sigcontext) };
  
@@ -240,13 +252,13 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      save_context( data, &context, sigcontext );
      setup_raise_exception( data, sigcontext, &rec, &context );
  }
-@@ -2531,8 +2672,16 @@ static void abrt_handler( int signal, siginfo_t *sigin
+@@ -2531,7 +2678,15 @@ static void abrt_handler( int signal, si
  static void quit_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
  {
      ucontext_t *sigcontext = _sigcontext;
 -    struct thread_data *data = init_handler( sigcontext );
 +    struct thread_data *data;
- 
++
 +#ifdef __OpenBSD__
 +    /* The relay uses thrkill() to deliver SIGQUIT to a registered Wine thread.
 +     * Signal dispositions are process-wide, so an external SIGQUIT can also
@@ -254,17 +266,16 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +    if (!is_signal_thread()) return;
 +#endif
 +    data = init_handler( sigcontext );
-+
+ 
      if (is_inside_syscall( data, RSP_sig(sigcontext) )) abort_thread( 0 );
      user_mode_abort_thread( 0, get_syscall_frame( data ));
- }
-@@ -2546,8 +2695,17 @@ static void quit_handler( int signal, siginfo_t *sigin
+@@ -2546,7 +2701,16 @@ static void quit_handler( int signal, si
  static void usr1_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
  {
      ucontext_t *sigcontext = _sigcontext;
 -    struct thread_data *data = init_handler( sigcontext );
 +    struct thread_data *data;
- 
++
 +#ifdef __OpenBSD__
 +    if (!is_signal_thread()) return;
 +#endif
@@ -273,11 +284,10 @@ Index: dlls/ntdll/unix/signal_x86_64.c
 +    /* suspended in a gs stub? Leave */
 +    gs_leave_stub( sigcontext );
 +#endif
-+
+ 
      if (!data->teb)
      {
-         server_select( NULL, 0, SELECT_INTERRUPTIBLE, 0, NULL, NULL );
-@@ -2610,6 +2768,20 @@ static void usr1_handler( int signal, siginfo_t *sigin
+@@ -2610,6 +2774,20 @@ static void usr1_handler( int signal, si
  }
  
  
@@ -298,7 +308,23 @@ Index: dlls/ntdll/unix/signal_x86_64.c
  #if defined(__APPLE__) || defined(__linux__)
  /**********************************************************************
   *		sigsys_handler
-@@ -2805,6 +2977,9 @@ void signal_init_process( TEB *teb )
+@@ -2733,6 +2911,15 @@ NTSTATUS signal_alloc_thread( TEB *teb )
+         }
+         else thread_data->fs = fs32_sel;
+     }
++#ifdef __OpenBSD__
++    else
++    {
++        /* reported as SegFs in contexts taken from syscall frames */
++        USHORT fs;
++        __asm__( "movw %%fs,%0" : "=r" (fs) );
++        thread_data->fs = fs;
++    }
++#endif
+     thread_data->frame_size = frame_size;
+     return STATUS_SUCCESS;
+ }
+@@ -2805,6 +2992,9 @@ void signal_init_process( TEB *teb )
      WOW_TEB *wow_teb = get_wow_teb( teb );
      void *ptr;
  
@@ -308,7 +334,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      if (user_shared_data->XState.Size) xstate_size = user_shared_data->XState.Size - sizeof(XSAVE_FORMAT);
      frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
      xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
-@@ -2839,12 +3014,18 @@ void signal_init_process( TEB *teb )
+@@ -2839,12 +3029,18 @@ void signal_init_process( TEB *teb )
      if (sigaction( SIGINT, &sig_act, NULL ) == -1) goto error;
      sig_act.sa_sigaction = fpe_handler;
      if (sigaction( SIGFPE, &sig_act, NULL ) == -1) goto error;
@@ -327,7 +353,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
      sig_act.sa_sigaction = trap_handler;
      if (sigaction( SIGTRAP, &sig_act, NULL ) == -1) goto error;
      sig_act.sa_sigaction = segv_handler;
-@@ -2912,6 +3093,8 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry,
+@@ -2912,6 +3108,8 @@ void init_syscall_frame( LPTHREAD_START_
      amd64_get_fsbase( &thread_data->pthread_teb );
  #elif defined(__NetBSD__)
      sysarch( X86_64_SET_GSBASE, &teb );
@@ -336,7 +362,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
  #elif defined (__APPLE__)
      thread_data->pthread_teb = mac_thread_gsbase();
  #else
-@@ -3022,7 +3205,12 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
+@@ -3022,7 +3220,12 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
   */
  __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                     __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_gs_load") ":\n\t"
@@ -349,7 +375,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
                     "popq 0x70(%rcx)\n\t"           /* frame->rip */
                     __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                     __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
-@@ -3053,7 +3241,11 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+@@ -3053,7 +3256,11 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
                     "movw %ss,0x90(%rcx)\n\t"
                     "movq %rbp,0x98(%rcx)\n\t"
                     __ASM_CFI_REG_IS_AT2(rbp, rcx, 0x98, 0x01)
@@ -361,7 +387,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
                     "movl %eax,0xb0(%rcx)\n\t"      /* frame->syscall_id */
                     /* Legends of Runeterra hooks the first system call return instruction, and
                      * depends on us returning to it. Adjust the return address accordingly. */
-@@ -3301,7 +3493,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+@@ -3301,7 +3508,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
                     "popfq\n\t"
                     "iretq\n"
                     /* RESTORE_FLAGS_INSTRUMENTATION */
@@ -374,7 +400,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
                     "movq (%r10),%r10\n\t"
                     "test %r10,%r10\n\t"
                     "jz 3b\n\t"
-@@ -3360,7 +3557,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_return,
+@@ -3360,7 +3572,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
                     "jmp " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
  
  __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumentation,
@@ -387,7 +413,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
                     "popq 0x70(%rcx)\n\t"           /* frame->rip */
                     __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                     __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
-@@ -3378,7 +3580,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_instrumen
+@@ -3378,7 +3595,12 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispat
  __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                     "movq %rcx,%r10\n\t"
                     __ASM_LOCAL_LABEL("__wine_unix_call_dispatcher_gs_load") ":\n\t"
@@ -400,7 +426,7 @@ Index: dlls/ntdll/unix/signal_x86_64.c
                     "popq 0x70(%rcx)\n\t"           /* frame->rip */
                     __ASM_CFI(".cfi_adjust_cfa_offset -8\n\t")
                     __ASM_CFI_REG_IS_AT2(rip, rcx, 0xf0,0x00)
-@@ -3402,7 +3609,11 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
+@@ -3402,7 +3624,11 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_disp
                     __ASM_CFI_CFA_IS_AT2(rcx, 0x88, 0x01)
                     "movq %rbp,0x98(%rcx)\n\t"
                     __ASM_CFI_REG_IS_AT2(rbp, rcx, 0x98, 0x01)

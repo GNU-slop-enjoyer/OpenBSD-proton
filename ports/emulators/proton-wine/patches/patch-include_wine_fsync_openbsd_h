@@ -1,0 +1,95 @@
+fsync on OpenBSD: table of threads waiting on several futexes (no
+futex_waitv), shared by ntdll and wineserver; see the comment in the file.
+
+Index: include/wine/fsync_openbsd.h
+--- include/wine/fsync_openbsd.h.orig
++++ include/wine/fsync_openbsd.h
+@@ -0,0 +1,88 @@
++/*
++ * fsync on OpenBSD: waiters on several futexes
++ *
++ * OpenBSD has futex(2), and shared futexes work across processes on the
++ * shm_open() mapping that fsync uses, but there is no futex_waitv.  A thread
++ * that waits on several futexes (a multi-object or alertable wait) registers
++ * in a table in the fsync shared memory with a mask of the buckets of the
++ * futexes it waits on, and sleeps on its own futex word.  A wake scans the
++ * table and wakes the waiters whose mask has the bucket of the futex.
++ *
++ * Layout of the reserved shm slots (never allocated to objects):
++ *   slot 0: int[0] generation, int[1] waiters on it (used when the table is
++ *           full), int[2] number of registered waiters
++ *   slots 1 .. FSYNC_WAITERS: struct fsync_waiter
++ *
++ * The bucket of a futex is its shm index modulo 64: slots are 16 bytes and
++ * the shm pages are mapped page-aligned, so bits 4-9 of the address are the
++ * same in every process.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#ifndef __WINE_WINE_FSYNC_OPENBSD_H
++#define __WINE_WINE_FSYNC_OPENBSD_H
++
++#ifdef __OpenBSD__
++
++#include <limits.h>
++#include <stdint.h>
++#include <time.h>
++#include <sys/futex.h>
++
++#define FSYNC_WAITERS 255
++#define FSYNC_RESERVED_SLOTS (FSYNC_WAITERS + 1)
++
++struct fsync_waiter
++{
++    int      wake;   /* futex word the waiter sleeps on */
++    int      owner;  /* thread id of the waiter, 0 if free */
++    uint64_t mask;   /* buckets of the futexes it waits on */
++};
++
++static inline uint64_t fsync_futex_bucket( const void *addr )
++{
++    return (uint64_t)1 << (((uintptr_t)addr >> 4) & 63);
++}
++
++/* After changing the futex word at addr and FUTEX_WAKE on it: wake the
++ * threads waiting on it among others.  slot0 is the mapping of shm slot 0. */
++static inline void fsync_wake_waiters( int *slot0, const void *addr )
++{
++    struct fsync_waiter *waiters = (struct fsync_waiter *)(slot0 + 4);
++    uint64_t bit = fsync_futex_bucket( addr );
++    unsigned int i;
++
++    /* order the caller's store to the futex before reading the waiters;
++     * waiters register before reading the futex */
++    __atomic_thread_fence( __ATOMIC_SEQ_CST );
++    if (__atomic_load_n( &slot0[2], __ATOMIC_SEQ_CST ))
++    {
++        for (i = 0; i < FSYNC_WAITERS; i++)
++        {
++            if (!(__atomic_load_n( &waiters[i].mask, __ATOMIC_SEQ_CST ) & bit)) continue;
++            if (!__atomic_exchange_n( &waiters[i].wake, 1, __ATOMIC_SEQ_CST ))
++                futex( (volatile uint32_t *)&waiters[i].wake, FUTEX_WAKE, 1, NULL, NULL );
++        }
++    }
++    if (__atomic_load_n( &slot0[1], __ATOMIC_SEQ_CST ))
++    {
++        __atomic_add_fetch( &slot0[0], 1, __ATOMIC_SEQ_CST );
++        futex( (volatile uint32_t *)&slot0[0], FUTEX_WAKE, INT_MAX, NULL, NULL );
++    }
++}
++
++#endif /* __OpenBSD__ */
++#endif /* __WINE_WINE_FSYNC_OPENBSD_H */

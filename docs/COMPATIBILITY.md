@@ -186,7 +186,7 @@ detects 32-bit PE files and says so. Workarounds: the program's `.msi`
 |---|---|
 | wineserver needs a path to add an inotify watch; `get_path_from_fd()` only knew `/proc/self/fd` and `F_GETPATH`, neither exists on OpenBSD, so no watch was ever added (ReadDirectoryChangesW / FindFirstChangeNotification never fired) | fall back to the name the server opened the directory with (`get_fd_unix_name()`); kernel32 change 82 → 9 failures. Applies to emulators/wine too |
 | non-ASCII Windows file names are unrepresentable in the C locale (US-ASCII), the default on OpenBSD | proton-openbsd sets `LC_CTYPE=C.UTF-8` if the locale is not UTF-8 |
-| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) are only partly emulated without extended attributes | known limitation (~100 ntdll file test failures) |
+| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) without extended attributes: the port stored data only for files and only symlink tags | p14: directories keep their data in `.wine-reparse` inside them (hidden, removed with the directory), any tag; kernel32 file 0 failures, ntdll file 124 → 27 (DOS hidden/system attributes still need xattrs) |
 
 ## Signal-context safety (found by winetest, session 2)
 
@@ -214,3 +214,26 @@ arbitrary code.
 | Issue | Fix |
 |---|---|
 | Under cwm (OpenBSD base's default window manager) an idle wine program, explorer.exe and wineserver used most of a CPU. Proton's `set_focus()` calls `wait_grab_pointer()`, which grabs and ungrabs the pointer; the ungrab generates an EnterNotify (mode NotifyUngrab), cwm activates the client on every EnterNotify without checking the mode and sends WM_TAKE_FOCUS, which calls `set_focus()` again. Upstream wine-11.19 has no `wait_grab_pointer()` | winex11 ignores WM_TAKE_FOCUS when the window already is the foreground window and owns the X input focus (p7). cwm could also check `e->mode` in its EnterNotify handler (not changed; base system) |
+| The same mechanism with two Wine windows (e.g. two conhost windows): each WM_TAKE_FOCUS → `set_focus()` → `wait_grab_pointer()` grab/ungrab → EnterNotify → cwm activates the window under the pointer → WM_TAKE_FOCUS for the other window; `_NET_ACTIVE_WINDOW` changed every millisecond and the conhosts never got to serve their consoles | `wait_grab_pointer()` only grabs while a mouse button is pressed (`XQueryPointer`), since window-manager move/resize grabs need one (p8) |
+
+## Debugging tools on OpenBSD (session 3)
+
+- `winedbg` works now that debugger attach works (p6): `winedbg --command
+  "info process"`, then `printf 'attach 0x<pid>\nbt 0x<tid>\ndetach\n' |
+  winedbg` (per thread: `bt all` makes winedbg itself crash on some
+  frames).
+- lldb (base) needs a raised data-size limit (`ulimit -d $(ulimit -H -d)`)
+  or it aborts with "LLVM ERROR: out of memory"; it reads wine cores fine,
+  live attach to wine processes produced no output.
+- `ktrace -i -t S` records pinsyscalls(2) violations (the kernel's
+  explanation is otherwise only uprintf'd to the controlling tty).
+
+## Synchronization and timer resolution (session 3)
+
+Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
+
+| Issue | Fix |
+|---|---|
+| Waits on kernel objects (events, semaphores, mutexes) are wineserver round trips: 17 µs for a wait on a signaled event (Linux server-side 4.8 µs, Proton fsync 0.12 µs). Proton's fsync needs Linux futex_waitv; its in-process sync objects were only compiled with the Linux ntsync header | fsync backend on OpenBSD futex(2) (shared futexes work across processes on the shm_open() mapping): single-object waits FUTEX_WAIT; multi-object/alertable waits wait on a generation counter in shm slot 0 that wakes bump while such waiters exist. Server inproc sync objects compiled with OpenBSD declarations of the ntsync request numbers. Opt-in `WINEFSYNC=1` (p10): signaled-event wait 0.35 µs, semaphore 4.5 µs, mutex 9.8 µs. ntdll sync shows the same 4 failures as Proton's fsync on Linux; kernel32 sync the same 4 plus a timer-queue race (also seen 2/5 without fsync, from the coarse clock) |
+| OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout: Sleep(1) 20 ms, Sleep(16) 30 ms; timeBeginPeriod() did nothing | timeBeginPeriod(<10 ms) → NtSetTimerResolution; ntdll then sleeps in the kernel only while more than two ticks remain and yields for the rest (Sleep(1) 1.00 ms, Sleep(16) 16.00 ms). `WINE_PRECISE_SLEEP=1/0` forces it on/off. Timed waits on objects (WaitForSingleObject(h, 1)) still round to ticks |
+| wineserver signals reach a thread of another process only through the SIGUSR2 relay (process-wide SIGUSR2, then thrkill() by whichever thread takes it), so a system APC queued to the calling thread during its own request (e.g. completing a cancelled I/O) could run after the call returned; with fsync the next wait does not enter the server, and kernel32 pipe saw the completion event unsignaled | after each server call the calling thread claims the relay entries addressed to itself and signals itself (pending until it unblocks signals, as with Linux tkill()) — p11; kernel32 pipe 0 failures with and without fsync |

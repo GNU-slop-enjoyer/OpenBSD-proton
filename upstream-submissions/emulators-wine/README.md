@@ -57,6 +57,36 @@ field replace the server's ptrace() write of PEB BeingDebugged.
 ws2_32 resolves the local host name (and "") from the interface addresses
 when the system cannot (no nss-myhostname on OpenBSD; ws2_32 protocol test
 19 -> 1 failures in proton-wine).
+Exception/thread contexts report the real %fs selector (OpenBSD's
+sigcontext has none; 40 ntdll exception test failures in proton-wine).
+Third batch (2026-10-22, not built for 11.19 yet; tested in proton-wine):
+relayed signals for the calling thread are delivered when its server call
+returns (system APCs queued during the call ran late through the SIGUSR2
+relay), and precise Sleep() for processes that call timeBeginPeriod(<10)
+or set WINE_PRECISE_SLEEP=1 (the 100 Hz clock made Sleep(1) take 20 ms).
+Directory reparse points (symlinks/junctions to directories) and any
+reparse tag; in proton-wine kernel32_test file went from a crash to 0
+failures and ntdll_test file from 124 to 27 failures.
+Fourth batch (2026-10-22): %gs instructions shorter than 5 bytes (e.g.
+mov %gs:(%rcx),%rax) get a jmp rel8 to int3 padding between functions that
+holds the jmp rel32 to their stub, instead of faulting on every execution
+(tests/pe/gsbench.c: ~5 us -> 5.3 ns when such padding is in reach;
+gs_openbsd.c is identical in both ports, so the patch is the same file).
+Fifth batch (2026-10-22): precise timed waits on the server path in
+precise-sleep mode (wine 11.19 has no fsync, so every timed wait goes to
+the server): in the 11.19 build tree WaitForSingleObject(ev, 1) 20 ms ->
+1.00 ms with WINE_PRECISE_SLEEP=1, unchanged by default; kernel32 sync 0
+failures with WINE_PRECISE_SLEEP=1. Not packaged for 11.19.
+Also (not OpenBSD-specific, present in upstream master as of 2026-10-22):
+winex11 formats the Xkb layout key "%s:%s" with a NULL variant; OpenBSD's
+libc logs 'vfprintf %s NULL in "%s:%s"' to syslog for every process that
+loads winex11 (193 lines in the VM's /var/log/messages). Fixed with an
+empty variant; a fresh wineboot in the 11.19 build tree logs nothing.
+This one could go to WineHQ directly.
+Likewise wineserver's request trace passes a NULL cur_data to %.*s for
+empty strings (`WINEDEBUG=+server`), logged the same way; fixed in
+server/trace.c (patches/patch-server_trace_c, new: the port does not
+patch that file).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
@@ -67,5 +97,20 @@ Status:
   server_init_process_done`, 9× in ntdll_test info). Second batch is in
   openbsd-fixes.diff and patches/ (58 files; the generated
   server_protocol.h, request_handlers.h and request_trace.h are patched
-  directly, as the port does not run make_requests); build pending.
-  The same changes pass tests/pe/sysinfo.c 24/24 in proton-wine.
+  directly, as the port does not run make_requests).
+- Full bundle built and tested as local wine-11.19p3 (2026-10-21): no
+  assertion in ntdll_test info, tests/pe/sysinfo.c 25/25, basic 6/6,
+  gui 5/5, ws2_32 protocol 19 -> 1 (a passing todo), ntdll exception
+  without the 40 %fs mismatches, ntdll om/virtual 0, kernel32 console 0.
+  Same 8 implicit-declaration warnings as the original port. Not sent
+  anywhere: sending needs the project owner's OK.
+- Batches 1-3 built and tested as local wine-11.19p4 (2026-10-22; test
+  binaries from the proton-wine 11.0 tree, so Proton-specific tests fail
+  on stock 11.19): ntdll om 0 failures, kernel32 pipe 0, kernel32 sync 0,
+  kernel32 file 1 (completes), ws2_32 protocol 1 (the passing todo),
+  ntdll file 35, no debugger assertion; sysinfo 25/25, basic 6/6;
+  Sleep(1) after timeBeginPeriod(1) 1.00 ms (20 ms before), Sleep(16)
+  30 ms by default and 16.00 ms with WINE_PRECISE_SLEEP=1. ntdll info's
+  860 failures are the Proton-only kernel-object-pointer test (info.c:957;
+  1466 with p3), ntdll exception crashes in the Wow64 CPU-area part as with
+  p3. Batch 4 (%gs padding) is not built for 11.19 yet.

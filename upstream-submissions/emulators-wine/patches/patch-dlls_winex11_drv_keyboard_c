@@ -1,10 +1,14 @@
 OpenBSD X server uses XFREE86 set, not evdev, and Wine only has evdev defined.
 We define XFREE86 keycodes and map them to scancodes.
 
+The Xkb layout key is formatted "%s:%s" with a variant that is NULL for
+layouts without one; OpenBSD's libc logs 'vfprintf %s NULL in "%s:%s"' to
+syslog on every wineboot.  Use an empty variant.
+
 Index: dlls/winex11.drv/keyboard.c
 --- dlls/winex11.drv/keyboard.c.orig
 +++ dlls/winex11.drv/keyboard.c
-@@ -227,6 +227,71 @@ static WORD keyc2scan( unsigned int keycode, unsigned 
+@@ -227,6 +227,71 @@ static WORD keyc2scan( unsigned int keyc
          if (state & ControlMask) return 0x0146; /* X46 / VK_CANCEL */
          return 0x021d; /* Y1D / VK_PAUSE */
      }
@@ -76,3 +80,12 @@ Index: dlls/winex11.drv/keyboard.c
  #else
      FIXME( "evdev keycodes not available, scancode mapping is going to be broken\n" );
  #endif
+@@ -2220,7 +2285,7 @@ void init_keyboard_layouts( Display *dis
+         TRACE( "Found group %u with name %s -> layout %s:%s, lang %04x, klid %08x\n", i, debugstr_a(names[i]),
+                debugstr_a(layout), debugstr_a(variant), lang, klid );
+ 
+-        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
++        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant ? variant : "" );
+         create_layout_from_xkb( i, buffer, lang, klid );
+ 
+         if (names[i]) XFree( names[i] );

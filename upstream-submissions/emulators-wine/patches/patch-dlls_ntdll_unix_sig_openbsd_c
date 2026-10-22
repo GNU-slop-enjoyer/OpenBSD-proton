@@ -8,10 +8,14 @@ Chromium/Electron is using this actively for sampling profiler and hang watcher
 
 Any changes here have to be reflected in the server's sig_openbsd.
 
+claim_own_signal_targets(): after a server call the calling thread takes
+the relay requests addressed to itself, so a system APC queued during its
+own request runs before it continues, as on Linux.
+
 Index: dlls/ntdll/unix/sig_openbsd.c
 --- dlls/ntdll/unix/sig_openbsd.c.orig
 +++ dlls/ntdll/unix/sig_openbsd.c
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,164 @@
 +/*
 + * OpenBSD cross process thread signals
 + *
@@ -131,6 +135,29 @@ Index: dlls/ntdll/unix/sig_openbsd.c
 +             * request is delivered after the entire array has been drained. */
 +            thrkill( tid, sig, NULL );
 +        }
++    }
++    errno = saved_errno;
++}
++
++void claim_own_signal_targets( int tid )
++{
++    int saved_errno = errno;
++    unsigned int i;
++
++    if (!signal_targets || tid <= 0) return;
++
++    for (i = 0; i < SIGNAL_TARGETS_COUNT; i++)
++    {
++        uint64_t request = __atomic_load_n( &signal_targets[i], __ATOMIC_RELAXED );
++        unsigned int sig = request >> 32;
++
++        if (!request || (int)(uint32_t)request != tid) continue;
++        if (!__atomic_compare_exchange_n( &signal_targets[i], &request, 0, FALSE,
++                                          __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ))
++            continue;  /* the SIGUSR2 relay took it */
++        if (sig != SIGINT && sig != SIGUSR1 && sig != SIGQUIT) continue;
++        /* the caller blocks these signals; it is delivered when it unblocks them */
++        thrkill( tid, sig, NULL );
 +    }
 +    errno = saved_errno;
 +}
