@@ -18,8 +18,9 @@ exactly what has been run and with which result; nothing below claims more.
   engine (Wine Gecko); 7-Zip, Notepad++; the games OpenTTD and SuperTuxKart
   (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound).
 - Direct3D 9/10/11 through wine's wined3d (OpenGL): the D3D11 conformance
-  tests pass. DXVK and vkd3d-proton are packaged but need a Vulkan driver
-  (radv/anv on real hardware) — **not tested yet**.
+  tests pass. DXVK renders Direct3D 11 and vkd3d-proton creates Direct3D 12
+  devices on Mesa's software Vulkan (lavapipe, built for testing); on real
+  radv/anv hardware they are **not tested yet**.
 - fsync — Proton's in-process synchronization — reimplemented on
   OpenBSD's futex(2) (waits on Windows objects: 0.35 µs instead of 17 µs).
 - 226 of 278 Wine conformance test units pass with fsync (p16); the remaining failures

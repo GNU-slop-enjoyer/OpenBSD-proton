@@ -18,7 +18,8 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [x] `graphics/dxvk` port at Proton's pinned `a6764047` (meson cross-build); packaged; runs up to Vulkan instance creation in the VM
 - [ ] DXVK D3D11 rendering test on real hardware
 - [x] `graphics/vkd3d-proton` port at `212991fc`; packaged; loads and fails cleanly without a Vulkan device
-- [ ] Vulkan on real hardware (radv/anv in 8.0 xenocara); no lavapipe in 8.0, no GPU in the VM
+- [x] DXVK D3D11 rendering and vkd3d-proton device creation on lavapipe in the VM (2026-10-22)
+- [ ] Vulkan on real hardware (radv/anv in 8.0 xenocara)
 
 ## M3 — Valve wine fork (Stage C)
 - [x] Fetch `ValveSoftware/wine` at `e60892cc`; patch-check the OpenBSD tree against it

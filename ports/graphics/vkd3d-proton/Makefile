@@ -12,6 +12,7 @@ GH_ACCOUNT =		HansKristian-Work
 GH_PROJECT =		vkd3d-proton
 GH_COMMIT =		212991fc2c266bc0d59f4c4ce8f80f7126508d71
 DISTNAME =		vkd3d-proton-${V}.20260729
+REVISION =		0
 
 CATEGORIES =		graphics emulators
 
@@ -41,7 +42,7 @@ DISTFILES.dxil =	dxil-spirv-{}${DXIL_SPIRV_COMMIT}.tar.gz
 DISTFILES.dxbc =	dxbc-spirv-{}${DXBC_SPIRV_COMMIT}.tar.gz
 
 BUILD_DEPENDS =		devel/meson \
-			devel/mingw-w64>=13.0.0p0 \
+			devel/mingw-w64>=13.0.0p1 \
 			devel/ninja \
 			graphics/glslang
 

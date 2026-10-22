@@ -263,3 +263,25 @@ Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
   used after destroy (LD_PRELOAD check). Detecting malloc: `lookup_unix_name`
   in the nested lookup. Programs that never point a symlink at a mounted
   volume folder do not reach it.
+
+## Retguard in Windows-target code (found with lavapipe, session 3)
+
+OpenBSD's clang enables retguard (`-fret-protector`) for every target. In
+leaf functions it may keep the cookie in a register that is scratch in the
+SysV ABI but callee-saved in the Windows x64 ABI, and it does not restore
+it: DXVK's `DxvkShaderPipelineLibraryKey::hash()` loaded the cookie into
+`%rsi`, its caller kept a pointer in `%rsi`, and `D3D11CreateDevice` crashed
+storing through the zeroed pointer (found with winedbg breakpoints on
+lavapipe). Wine already builds its PE code with `-fno-ret-protector`; the
+`devel/mingw-w64` driver wrappers now pass it too (13.0.0p1), and DXVK and
+vkd3d-proton were rebuilt (`>=13.0.0p1`). Anything built with the earlier
+toolchain (the C++ runtime is static in it) must be rebuilt.
+
+## Software Vulkan for testing (lavapipe)
+
+xenocara's Mesa has no lavapipe. `scripts/vm/lavapipe/build.sh` builds it
+from Mesa 25.0.7 (xenocara's version, checksum from the release notes) into
+a private prefix: one OpenBSD fix (`vk_device.c` uses `FALLTHROUGH` without
+`util/compiler.h` when neither `CLOCK_MONOTONIC_RAW` nor
+`CLOCK_MONOTONIC_FAST` exists) and an rpath to `/usr/local/llvm22/lib`.
+Test-only: it is not packaged and not a substitute for radv/anv performance.

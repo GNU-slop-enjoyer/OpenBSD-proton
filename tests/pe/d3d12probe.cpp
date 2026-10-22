@@ -23,6 +23,7 @@ static void print_module(const char *name)
 
 int main()
 {
+	setvbuf(stdout, nullptr, _IONBF, 0);	/* keep the output if the program crashes */
 	ID3D12Device *device = nullptr;
 	HRESULT hr = D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0,
 	    __uuidof(ID3D12Device), reinterpret_cast<void **>(&device));

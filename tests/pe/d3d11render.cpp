@@ -55,6 +55,7 @@ static ID3DBlob *compile(compile_fn D3DCompile, const char *entry,
 
 int main()
 {
+	setvbuf(stdout, nullptr, _IONBF, 0);	/* keep the output if the program crashes */
 	const UINT size = 64;
 	ID3D11Device *dev = nullptr;
 	ID3D11DeviceContext *ctx = nullptr;

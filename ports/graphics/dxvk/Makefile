@@ -12,6 +12,7 @@ GH_ACCOUNT =		doitsujin
 GH_PROJECT =		dxvk
 GH_COMMIT =		a6764047e587178283fcde4073ae6e1410af594f
 DISTNAME =		dxvk-${V}.20260720
+REVISION =		0
 
 CATEGORIES =		graphics emulators
 
@@ -43,7 +44,7 @@ DISTFILES.dxbc =	dxbc-spirv-{}${DXBC_SPIRV_COMMIT}.tar.gz
 DISTFILES.di =		libdisplay-info-{}${DISPLAYINFO_COMMIT}.tar.gz
 
 BUILD_DEPENDS =		devel/meson \
-			devel/mingw-w64 \
+			devel/mingw-w64>=13.0.0p1 \
 			devel/ninja \
 			graphics/glslang
 

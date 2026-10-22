@@ -60,4 +60,4 @@ There is **no wine package in 8.0**: the port was re-imported to -current on
 | clang-22 PE (x86_64-windows, wine headers) | used by wine port (`files/clang-pe`) |
 | mingw-w64 headers/CRT + libc++/libunwind for x86_64-w64-mingw32 | **new port** `devel/mingw-w64` (mingw-w64 v13.0.0, LLVM 22.1.8 runtimes, uses installed llvm-22); packaged and tested |
 | meson 1.12.1, ninja 1.11.1, cmake 4.3.5 | pkg-8.0; build tools for dxvk and the toolchain |
-| Mesa Vulkan ICDs in 8.0 xenocara | anv, hasvk, radv present; no lavapipe |
+| Mesa Vulkan ICDs in 8.0 xenocara | anv, hasvk, radv present; no lavapipe (test build: `scripts/vm/lavapipe/build.sh`, Mesa 25.0.7) |
