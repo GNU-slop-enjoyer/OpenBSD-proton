@@ -32,17 +32,38 @@ blockers, next action.
 - Measurements: syncbench (fsync vs server: wait 0.35 vs 17 µs, semaphore
   1.4 vs 32 µs), raw pipe round trip VM 9.2 µs vs host 3.7 µs.
 
+### Later in session 3 (p13 → p15)
+- p13: server removes killed threads' fsync waiter entries; p13 winetest
+  228 pass / 43 fail / 6 crash / 1 timeout (`docs/results`).
+- p14: directory reparse points (`.wine-reparse` inside the directory) and
+  any reparse tag: kernel32 file crash → 0 failures, ntdll file 124 → 27.
+- p15 (work tree e2c6c81): `%gs` instructions shorter than 5 bytes get a
+  `jmp rel8` to int3 padding holding the `jmp rel32` to their stub:
+  gsbench 4-byte form ~5 µs → 5.3 ns when padding is in reach (patch
+  header case "2b"). p15 is built only in the build tree, not packaged yet.
+- SuperTuxKart race with fsync + audio under cwm works (screenshot).
+- gsbench (`tests/pe/gsbench.c`); README, ARCHITECTURE, USING documents.
+- emulators-wine bundle: batch 3 (relay claim, precise Sleep, directory
+  reparse) being built as local wine-11.19p4 (log
+  `~/build-logs/emulators_wine.log`; `/usr/ports/emulators/wine` holds the
+  bundle, `patches.orig` the original patches); batch 4 (`%gs` padding)
+  added to the bundle files afterwards.
+
 ### Open / next actions
-1. p12 fsync full winetest running: `~builder/winetest/out-p12f`; compare
-   with `docs/results` p8 and p11 (copy p12 summary to docs/results).
-2. SuperTuxKart/OpenTTD through launcher 0.1p7 (fsync default) — regression
-   check of real programs with fsync.
-3. Build emulators/wine-11.19 with bundle batch 3 (relay claim, precise
-   Sleep) and test.
-4. Timed waits on objects still tick-rounded without fsync (server path).
-5. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path; directory
-   reparse points; dual-stack sockets — see ROADMAP M5.
-6. Real-hardware DXVK/vkd3d-proton test (user); upstream submission (user's OK).
+1. Finish wine-11.19p4: install, test (ntdll info, sysinfo, ws2_32
+   protocol, kernel32 file/pipe, sleeptest), record in the bundle README
+   and TESTING; restore `/usr/ports/emulators/wine` (patches.orig →
+   patches, Makefile from `upstream/ports/emulators/wine/Makefile`).
+2. Package proton-wine p15 (`make clean=fake; make package`, pkg_add -u)
+   and rerun basic/gui/gsbench + ntdll units with the package.
+3. Timed waits on objects still tick-rounded on the server path (fsync,
+   on by default, covers most waits).
+4. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
+   dual-stack sockets (OpenBSD has no IPv4-mapped IPv6); DOS hidden/system
+   attributes (no xattrs, no UF_HIDDEN on OpenBSD); winetest runner
+   empty-log flake.
+5. Real-hardware DXVK/vkd3d-proton test (the user, last); upstream
+   submission (needs the user's OK).
 
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
 
