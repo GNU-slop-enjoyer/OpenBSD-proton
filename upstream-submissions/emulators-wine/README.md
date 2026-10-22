@@ -89,3 +89,13 @@ Status:
   without the 40 %fs mismatches, ntdll om/virtual 0, kernel32 console 0.
   Same 8 implicit-declaration warnings as the original port. Not sent
   anywhere: sending needs the project owner's OK.
+- Batches 1-3 built and tested as local wine-11.19p4 (2026-10-22; test
+  binaries from the proton-wine 11.0 tree, so Proton-specific tests fail
+  on stock 11.19): ntdll om 0 failures, kernel32 pipe 0, kernel32 sync 0,
+  kernel32 file 1 (completes), ws2_32 protocol 1 (the passing todo),
+  ntdll file 35, no debugger assertion; sysinfo 25/25, basic 6/6;
+  Sleep(1) after timeBeginPeriod(1) 1.00 ms (20 ms before), Sleep(16)
+  30 ms by default and 16.00 ms with WINE_PRECISE_SLEEP=1. ntdll info's
+  860 failures are the Proton-only kernel-object-pointer test (info.c:957;
+  1466 with p3), ntdll exception crashes in the Wow64 CPU-area part as with
+  p3. Batch 4 (%gs padding) is not built for 11.19 yet.

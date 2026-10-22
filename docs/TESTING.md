@@ -153,3 +153,4 @@ command and log. "Not tested" means exactly that.
   `*_test.exe` files from a port's build tree (copy reconfigured without
   `--disable-tests`); `scripts/vm/winetest-run.sh` runs each test unit
   separately with a timeout and writes `summary.txt`.
+| 2026-10-22 | — | emulators/wine with bundle batches 1-3 as local wine-11.19p4 (prefix update needs `WINEDLLOVERRIDES=mscoree,mshtml=` without Mono installed, else the Mono download dialog blocks every run): ntdll om 0 / kernel32 pipe 0 / sync 0 / file 1 / ws2_32 protocol 1 / ntdll file 35 failures, sysinfo 25/25, basic 6/6, Sleep(1) after timeBeginPeriod(1) 1.00 ms, Sleep(16) 16.00 ms with WINE_PRECISE_SLEEP | obsd-vm | **pass** (details in upstream-submissions/emulators-wine/README.md) | `~builder/winetest/out-1119p4` |
