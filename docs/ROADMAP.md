@@ -33,7 +33,8 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
 - [ ] Application test matrix (TESTING.md) — tiers 5–10 done in the VM; real-hardware Vulkan pending
 
 ## M5 — Performance and remaining platform gaps
-- [ ] In-process synchronization for kernel objects. Measured (`tests/pe/syncbench.c`):
+- [x] In-process synchronization for kernel objects: fsync on OpenBSD futex(2) with a
+      waiter table instead of futex_waitv (p10–p12; launcher default). Measured (`tests/pe/syncbench.c`):
       a wait on a signaled event costs 17 µs on OpenBSD (every wait/set is a wineserver
       round trip), 4.8 µs with server-side sync on Linux and 0.12 µs with Proton's fsync.
       The raw pipe round trip is 2.5× slower in the OpenBSD VM than on the Linux host, so
@@ -42,6 +43,7 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
       for single-object waits, kqueue/pipes for multi-object waits), behind an opt-in
       environment variable until it passes the sync winetests. In-process locks
       (SRW/condition variables/WaitOnAddress, kqueue EVFILT_USER) are already 6 µs vs 4 µs.
+- [x] Precise Sleep() for programs that ask for it (timeBeginPeriod) — p10
 - [ ] Directory reparse points (symlinks/junctions to directories) without xattrs
 - [ ] Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path
 - [ ] Sending the emulators/wine-11.19 bundle upstream (needs the owner's OK)

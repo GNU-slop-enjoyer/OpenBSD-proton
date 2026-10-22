@@ -3,58 +3,46 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
-## 2026-10-21 — Session 3: Linux reference, OpenBSD-only failures, cwm focus loops
+## 2026-10-21/22 — Session 3: Linux reference, OpenBSD-only fixes, fsync, timers
 
-### What changed (proton-wine p6 → p9)
-- **Linux reference** (`scripts/linux-ref-build.sh`, `docs/results/winetest-linux-ref.txt`):
-  pristine Proton wine on the Gentoo host with the VM's test binaries;
-  units failing identically there are Proton/environment behaviour.
-  `scripts/winetest-compare.sh` compares summary files unit by unit.
-- p6: bcrypt ECDH via libgcrypt (port dependency was missing); process
-  memory counters and CPU times from sysctl(2); debugging without ptrace
-  (APC_WRITE_MEMORY + init_process_done "debugged": DebugActiveProcess
-  failed and every DEBUG_PROCESS child aborted). `tests/pe/sysinfo.c` 25/25.
-- p7: ws2_32 resolves the local host name from interface addresses (no
-  nss-myhostname); WM_TAKE_FOCUS ignored when the window already has the
-  focus (idle programs burned CPU under cwm).
-- p8: `wait_grab_pointer()` only grabs while a mouse button is pressed
-  (two windows ping-ponged the focus through cwm; kernel32 console children
-  never exited); bcrypt calls gcry_check_version().
-- p9 (sources, not packaged yet): real %fs selector in contexts.
-- Audio: `tests/pe/audio.c` (WASAPI via winepulse into a PulseAudio null
-  sink) 15/15 — the 100 Hz clock is not a problem.
-- Winetest (fresh prefix, Mono/Gecko, UTF-8, cwm): p1 201/252 → p7 226/278
-  → **p8 230/278** (`docs/results/winetest-proton-wine-p8.txt`).
-- emulators/wine-11.19 bundle (`upstream-submissions/emulators-wine`, 58
-  patches): wine-11.19p2 (first batch) tested; second batch (sysctl info,
-  debugger, getaddrinfo, %fs) is being built as local wine-11.19p3.
-
-### Environment notes
-- The ports framework's own install of freshly built dependencies fails
-  ("Can't find …tgz", unsigned); install them with
-  `doas env TRUSTED_PKG_PATH=/home/packages/amd64/all pkg_add <pkg>` and
-  restart the build.
-- Debugging: winedbg attach works (per thread `bt 0x<tid>`); lldb needs
-  `ulimit -d $(ulimit -H -d)`; `ktrace -i -t S` for pinsyscalls.
-- pulseaudio for tests: `pulseaudio -n --daemonize=yes --exit-idle-time=-1
-  --load=module-null-sink --load=module-native-protocol-unix`.
-- Keep cwm running on :1 for realistic GUI runs (`DISPLAY=:1 cwm &`).
+### What changed (proton-wine p6 → p12, launcher 0.1p5 → 0.1p7)
+- **Linux reference** (`scripts/linux-ref-build.sh`, `docs/results/winetest-linux-ref.txt`)
+  and `scripts/winetest-compare.sh`: failures identical on Linux are
+  Proton/environment behaviour; the rest were investigated and fixed.
+- p6: bcrypt ECDH via libgcrypt; memory counters / CPU times from sysctl(2);
+  debugging without ptrace (APC_WRITE_MEMORY, init_process_done "debugged").
+- p7: getaddrinfo of the local host name; WM_TAKE_FOCUS no-op when focused.
+- p8: `wait_grab_pointer()` only with a pressed button (cwm focus ping-pong);
+  gcry_check_version().
+- p9: real %fs in contexts.
+- p10: **fsync on OpenBSD futex(2)** (opt-in WINEFSYNC=1) and **precise
+  Sleep()** after timeBeginPeriod(<10 ms) / WINE_PRECISE_SLEEP=1 (100 Hz clock:
+  Sleep(1) was 20 ms).
+- p11: relayed signals for the calling thread delivered when its server call
+  returns (APC completion ran late through the SIGUSR2 relay; kernel32 pipe).
+- p12: fsync waiter table — wakes only multi-object waiters of the signaled
+  futex (no thundering herd).
+- Launcher 0.1p6/p7: audio path documented; fsync on by default
+  (`PROTON_NO_FSYNC`), `WINE_PRECISE_SLEEP` documented.
+- Tests: `tests/pe/{sysinfo,audio,syncbench,sleeptest}.c`. Winetest p8
+  230/278 without fsync; p11 with fsync 224 (+3 runner flakes); fsync-only
+  failures match Proton fsync on Linux.
+- emulators/wine-11.19 bundle: three batches; wine-11.19p3 (batches 1+2)
+  built and tested; batch 3 (relay, precise Sleep) not built for 11.19.
+- Measurements: syncbench (fsync vs server: wait 0.35 vs 17 µs, semaphore
+  1.4 vs 32 µs), raw pipe round trip VM 9.2 µs vs host 3.7 µs.
 
 ### Open / next actions
-1. Finish the wine-11.19p3 build (log `~builder/build-logs/emulators_wine.log`),
-   install, test ntdll info (no assertion), `sysinfo.exe`, ws2_32 protocol,
-   ntdll exception; then restore `/usr/ports/emulators/wine`
-   (`patches.orig` → `patches`, REVISION 0 from upstream/ports).
-2. Package proton-wine p9 (`make clean=fake; make package` after syncing
-   the port; ntdll.so already rebuilt in the build tree).
-3. Rare silent SIGABRT in kernel32 console runs (2 in ~20): probably a
-   pinsyscalls violation from the %gs fault path; catch with `ktrace -t S`.
-4. Directory reparse points (symlinks/junctions to directories) are not
-   emulated (regular files only); kernel32 file crash.
-5. ws2_32: no dual-stack sockets on OpenBSD (IPV6_V6ONLY fixed), missing
-   IP_PKTINFO-style options — platform limitations, documented.
-6. Real-hardware DXVK/vkd3d-proton test (user), sending the bundle
-   upstream (needs the user's OK).
+1. p12 fsync full winetest running: `~builder/winetest/out-p12f`; compare
+   with `docs/results` p8 and p11 (copy p12 summary to docs/results).
+2. SuperTuxKart/OpenTTD through launcher 0.1p7 (fsync default) — regression
+   check of real programs with fsync.
+3. Build emulators/wine-11.19 with bundle batch 3 (relay claim, precise
+   Sleep) and test.
+4. Timed waits on objects still tick-rounded without fsync (server path).
+5. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path; directory
+   reparse points; dual-stack sockets — see ROADMAP M5.
+6. Real-hardware DXVK/vkd3d-proton test (user); upstream submission (user's OK).
 
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
 
