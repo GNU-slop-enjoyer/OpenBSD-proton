@@ -624,8 +624,81 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/socket.c wine1119-chg/dlls/n
              return do_setsockopt( handle, io, IPPROTO_TCP, TCP_NODELAY, in_buffer, in_size );
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-chg/dlls/ntdll/unix/sync.c
 --- a/dlls/ntdll/unix/sync.c	2026-10-02 23:15:08.000000000 +0200
-+++ b/dlls/ntdll/unix/sync.c	2026-10-22 02:19:20.741298559 +0200
-@@ -2419,6 +2419,29 @@
++++ b/dlls/ntdll/unix/sync.c	2026-10-22 07:03:22.658430361 +0200
+@@ -2300,6 +2300,54 @@
+ }
+ 
+ 
++#ifdef __OpenBSD__
++static BOOL use_precise_sleep(void);
++
++/* Server timeouts end on a clock tick (100 Hz), so a 1 ms wait takes 20 ms.
++ * In precise sleep mode (see use_precise_sleep) wait in the server only
++ * while more than two ticks remain, then poll the objects every 100 us and
++ * yield the CPU in between.  Only for waits that can be repeated (not
++ * signal-and-wait). */
++static unsigned int precise_server_wait( const union select_op *select_op, data_size_t size,
++                                         UINT flags, const LARGE_INTEGER *timeout )
++{
++    LARGE_INTEGER now, wait;
++    timeout_t when, next;
++    unsigned int ret;
++
++    if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE || !timeout->QuadPart || !use_precise_sleep())
++        return server_wait( select_op, size, flags, timeout );
++
++    if ((when = timeout->QuadPart) < 0)
++    {
++        NtQuerySystemTime( &now );
++        when = now.QuadPart - when;
++    }
++    for (;;)
++    {
++        NtQuerySystemTime( &now );
++        if (when - now.QuadPart > 2 * TICKSPERSEC / 100)
++        {
++            wait.QuadPart = -(when - now.QuadPart - 2 * TICKSPERSEC / 100);
++            if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++            continue;
++        }
++        wait.QuadPart = 0;
++        if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++        next = now.QuadPart + TICKSPERSEC / 10000;
++        for (;;)
++        {
++            NtQuerySystemTime( &now );
++            if (now.QuadPart >= when) return STATUS_TIMEOUT;
++            if (now.QuadPart >= next) break;
++            sched_yield();
++        }
++    }
++}
++#else
++#define precise_server_wait server_wait
++#endif
++
+ /******************************************************************
+  *		NtWaitForMultipleObjects (NTDLL.@)
+  */
+@@ -2335,7 +2383,7 @@
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = type == WaitAll ? SELECT_WAIT_ALL : SELECT_WAIT;
+     for (i = 0; i < count; i++) select_op.wait.handles[i] = wine_server_obj_handle( handles[i] );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2361,7 +2409,7 @@
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = SELECT_WAIT;
+     select_op.wait.handles[0] = wine_server_obj_handle( handle );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2419,6 +2467,29 @@
  /******************************************************************
   *		NtDelayExecution (NTDLL.@)
   */
@@ -655,7 +728,16 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-chg/dlls/ntd
  NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeout )
  {
      unsigned int status = STATUS_SUCCESS;
-@@ -2459,6 +2482,17 @@
+@@ -2428,7 +2499,7 @@
+     {
+         /* Since server_wait will result in an unconditional implicit yield,
+            we never return STATUS_NO_YIELD_PERFORMED */
+-        if ((status = server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
++        if ((status = precise_server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
+             status = STATUS_SUCCESS;
+         return status;
+     }
+@@ -2459,6 +2530,17 @@
              NtQuerySystemTime( &now );
              diff = (when - now.QuadPart + 9) / 10;
              if (diff <= 0) break;
@@ -673,7 +755,7 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/sync.c wine1119-chg/dlls/ntd
              tv.tv_sec  = diff / 1000000;
              tv.tv_usec = diff % 1000000;
              if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
-@@ -2569,6 +2603,9 @@
+@@ -2569,6 +2651,9 @@
      if (!has_request && !set)
          return STATUS_TIMER_RESOLUTION_NOT_SET;
      has_request = set;

@@ -72,6 +72,11 @@ mov %gs:(%rcx),%rax) get a jmp rel8 to int3 padding between functions that
 holds the jmp rel32 to their stub, instead of faulting on every execution
 (tests/pe/gsbench.c: ~5 us -> 5.3 ns when such padding is in reach;
 gs_openbsd.c is identical in both ports, so the patch is the same file).
+Fifth batch (2026-10-22): precise timed waits on the server path in
+precise-sleep mode (wine 11.19 has no fsync, so every timed wait goes to
+the server): in the 11.19 build tree WaitForSingleObject(ev, 1) 20 ms ->
+1.00 ms with WINE_PRECISE_SLEEP=1, unchanged by default; kernel32 sync 0
+failures with WINE_PRECISE_SLEEP=1. Not packaged for 11.19.
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
