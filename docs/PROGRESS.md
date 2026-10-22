@@ -74,6 +74,16 @@ blockers, next action.
   GZDoom 4.14.2 + Freedoom with the Vulkan renderer. Screenshots in
   docs/screenshots.
 
+### Open items closed or narrowed (2026-10-22, evening)
+- Godot D3D12 on lavapipe: renders; earlier pipeline failure not reproducible.
+- Dual-stack sockets: TCP clients emulated (p18, packaged, dualstack 17/17);
+  UDP and listening dual-stack remain unsupported (documented).
+- Silent SIGABRT: 0/40 under a pty with p16; not reproducible since p9-p15.
+- Proton heap corruption (kernel32 volume): four replacement allocators and
+  valgrind could not catch it (COMPATIBILITY); next: build upstream wine 11.0
+  on the host (was killed for memory: the host has 7 GB, the VM 4 GB — use
+  `make -j2` with the VM stopped) to tell an upstream bug from a Proton patch.
+
 ### Open / next actions
 0. Real-hardware run (the user): radv/anv instead of lavapipe; same tests
    (`tests/pe` d3d11render/d3d12render, ImGui examples, GZDoom).
