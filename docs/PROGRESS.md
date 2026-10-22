@@ -49,7 +49,34 @@ blockers, next action.
   bundle, `patches.orig` the original patches); batch 4 (`%gs` padding)
   added to the bundle files afterwards.
 
+### Later still (p16 → p17, runner)
+- p16: precise timed waits on the server path (packaged, installed, tested).
+- p17 (sources only): wineserver request trace NULL for %.*s.
+- emulators-wine bundle: batches 1-3 tested as local wine-11.19p4; batch 4
+  (%gs padding) and 5 (precise server waits, tested in the 11.19 build
+  tree); winex11 NULL Xkb variant (upstream bug, syslog noise).
+- winetest-run.sh: duration column, `empty` status, UTF-8 locale, scratch
+  cwd. Full run p16 + fsync: 226 pass / 45 fail / 5 crash / 1 timeout /
+  1 empty (`docs/results/winetest-proton-wine-p16-fsync.txt`).
+- Found: Proton heap corruption through a symlink to a volume mount point
+  (kernel32 volume, Linux too) — open, see COMPATIBILITY.
+
+### Graphics without a GPU (2026-10-22, late)
+- lavapipe (Mesa 25.0.7 software Vulkan) built into `~builder/lvp/inst`
+  in the VM with `scripts/vm/lavapipe/build.sh`; select with
+  `VK_ICD_FILENAMES=$HOME/lvp/inst/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+- Found and fixed: OpenBSD clang retguard in Windows-target code clobbers
+  %rsi (callee-saved on Win64) → `devel/mingw-w64` 13.0.0p1 passes
+  `-fno-ret-protector`; dxvk/vkd3d-proton rebuilt. DXVK divided by a 0 Hz
+  refresh rate in Present() → dxvk 2.7.1p1 patch.
+- Tested on lavapipe: d3d11render 8/8 (DXVK), d3d12render 12/12
+  (vkd3d-proton, new test), Dear ImGui D3D9/10/11/12 examples in windows,
+  GZDoom 4.14.2 + Freedoom with the Vulkan renderer. Screenshots in
+  docs/screenshots.
+
 ### Open / next actions
+0. Real-hardware run (the user): radv/anv instead of lavapipe; same tests
+   (`tests/pe` d3d11render/d3d12render, ImGui examples, GZDoom).
 1. Done 2026-10-22: wine-11.19p4 (batches 1-3) tested, results in the
    bundle README; `/usr/ports/emulators/wine` restored (installed package
    is still the local 11.19p4). proton-wine p15 packaged, installed and
@@ -58,11 +85,15 @@ blockers, next action.
 3. Done (p16, work tree 8b1c813, packaged and installed in the VM):
    server-path timed waits precise in precise-sleep mode
    (WaitForSingleObject(ev, 1) 20 -> 1.00 ms with WINEFSYNC=0).
-4. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
+4. Proton heap corruption through a symlink to a volume mount point
+   (kernel32_test volume; also on Linux; see COMPATIBILITY "Reparse points
+   and known file-system gaps") — find the writer (candidate: diff Proton
+   vs 11.19 code reached from GetVolumePathNameW).
+5. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
    dual-stack sockets (OpenBSD has no IPv4-mapped IPv6); DOS hidden/system
    attributes (no xattrs, no UF_HIDDEN on OpenBSD); winetest runner
    empty-log flake.
-5. Real-hardware DXVK/vkd3d-proton test (the user, last); upstream
+6. Real-hardware DXVK/vkd3d-proton test (the user, last); upstream
    submission (needs the user's OK).
 
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest

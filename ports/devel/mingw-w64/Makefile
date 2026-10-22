@@ -10,7 +10,7 @@ COMMENT =		mingw-w64 cross toolchain for 64-bit Windows using LLVM
 V =			13.0.0
 DISTNAME =		mingw-w64-v${V}
 PKGNAME =		mingw-w64-${V}
-REVISION =		0
+REVISION =		1
 EXTRACT_SUFX =		.tar.bz2
 
 # keep in sync with devel/llvm/${LLVM_MAJOR} (same distfile)

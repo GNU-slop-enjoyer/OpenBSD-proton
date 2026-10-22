@@ -83,8 +83,10 @@ Wine port links `vulkan` (graphics/vulkan-loader 1.4.357 in 8.0 packages) and
 builds with `--with-vulkan`. OpenBSD 8.0 xenocara ships Mesa Vulkan ICDs
 (verified in the VM, `/usr/X11R6/share/vulkan/icd.d/`): `intel_icd`
 (anv), `intel_hasvk_icd` (older Intel), `radeon_icd` (radv). **No lavapipe**
-(software Vulkan) is shipped, and the QEMU VM has no GPU, so DXVK and
-vkd3d-proton runtime tests need real Intel/AMD hardware. NVIDIA: no driver.
+(software Vulkan) is shipped, and the QEMU VM has no GPU. Update
+(2026-10-22): lavapipe built from Mesa 25.0.7 (`scripts/vm/lavapipe/`)
+runs DXVK and vkd3d-proton in the VM — D3D11 rendering through DXVK is
+tested there; performance and real drivers still need Intel/AMD hardware. NVIDIA: no driver.
 Without Vulkan, wine's own wined3d (Direct3D on OpenGL) works: in the VM a
 D3D11 device (feature level 11_0) renders correctly through Mesa's
 software llvmpipe under Xvfb (`tests/pe/d3d11render.cpp`), so the D3D

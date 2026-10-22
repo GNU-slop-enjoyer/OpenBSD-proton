@@ -24,6 +24,7 @@ static void print_module(const char *name)
 
 int main()
 {
+	setvbuf(stdout, nullptr, _IONBF, 0);	/* keep the output if the program crashes */
 	IDXGIFactory1 *factory = nullptr;
 	HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1),
 	    reinterpret_cast<void **>(&factory));

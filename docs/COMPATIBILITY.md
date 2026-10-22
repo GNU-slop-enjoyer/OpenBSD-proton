@@ -237,3 +237,58 @@ Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
 | Waits on kernel objects (events, semaphores, mutexes) are wineserver round trips: 17 µs for a wait on a signaled event (Linux server-side 4.8 µs, Proton fsync 0.12 µs). Proton's fsync needs Linux futex_waitv; its in-process sync objects were only compiled with the Linux ntsync header | fsync backend on OpenBSD futex(2) (shared futexes work across processes on the shm_open() mapping): single-object waits FUTEX_WAIT; multi-object/alertable waits wait on a generation counter in shm slot 0 that wakes bump while such waiters exist. Server inproc sync objects compiled with OpenBSD declarations of the ntsync request numbers. Opt-in `WINEFSYNC=1` (p10): signaled-event wait 0.35 µs, semaphore 4.5 µs, mutex 9.8 µs. ntdll sync shows the same 4 failures as Proton's fsync on Linux; kernel32 sync the same 4 plus a timer-queue race (also seen 2/5 without fsync, from the coarse clock) |
 | OpenBSD's clock ticks at 100 Hz and sleeps end on a tick after the timeout: Sleep(1) 20 ms, Sleep(16) 30 ms; timeBeginPeriod() did nothing | timeBeginPeriod(<10 ms) → NtSetTimerResolution; ntdll then sleeps in the kernel only while more than two ticks remain and yields for the rest (Sleep(1) 1.00 ms, Sleep(16) 16.00 ms). `WINE_PRECISE_SLEEP=1/0` forces it on/off. Timed waits on objects (WaitForSingleObject(h, 1)) still round to ticks |
 | wineserver signals reach a thread of another process only through the SIGUSR2 relay (process-wide SIGUSR2, then thrkill() by whichever thread takes it), so a system APC queued to the calling thread during its own request (e.g. completing a cancelled I/O) could run after the call returned; with fsync the next wait does not enter the server, and kernel32 pipe saw the completion event unsignaled | after each server call the calling thread claims the relay entries addressed to itself and signals itself (pending until it unblocks signals, as with Linux tkill()) — p11; kernel32 pipe 0 failures with and without fsync |
+
+## Reparse points and known file-system gaps (session 3)
+
+- Directory reparse points (p14): the data is kept in `.wine-reparse` inside
+  the renamed `name?` directory. File reparse points keep the OpenBSD port's
+  scheme (the data is the content of the renamed `name?` file), so a file
+  that is both a reparse point and has data cannot be represented: in
+  `ntdll_test directory` the test writes "data" to such a file and the tag
+  then reads as 0x61746164 ("data"). Symlinks and junctions, the cases
+  programs use, have no data. Linux keeps the data in an xattr.
+- DOS hidden/system attributes are not stored (no xattrs, no UF_HIDDEN);
+  dot files are reported hidden (`ntdll_test directory` lines 176).
+- Heap corruption in `kernel32_test volume` (2026-10-22): resolving a path
+  through a directory symlink to a volume mount point
+  (`C:\winetest_link\windows\` → `C:\winetest_mnt\` → `\??\Volume{…}\`)
+  corrupts the heap: OpenBSD malloc aborts with "write to free mem" (5/5),
+  and the pristine Proton build on Linux aborts the same way ("double free
+  or corruption (out)", `build/linux-ref`), so it is Proton's bug, reached on
+  OpenBSD since p14 made directory reparse points work. wine 11.19 with the
+  same OpenBSD changes does not show it (3/3 clean). Not found yet: the
+  path-resolution functions are identical in both trees; a page-per-block
+  LD_PRELOAD allocator (freed blocks PROT_NONE) hides it without faulting,
+  so the freed block is probably one of libc's own; no pthread mutex is
+  used after destroy (LD_PRELOAD check). Detecting malloc: `lookup_unix_name`
+  in the nested lookup. Programs that never point a symlink at a mounted
+  volume folder do not reach it.
+
+## Retguard in Windows-target code (found with lavapipe, session 3)
+
+OpenBSD's clang enables retguard (`-fret-protector`) for every target. In
+leaf functions it may keep the cookie in a register that is scratch in the
+SysV ABI but callee-saved in the Windows x64 ABI, and it does not restore
+it: DXVK's `DxvkShaderPipelineLibraryKey::hash()` loaded the cookie into
+`%rsi`, its caller kept a pointer in `%rsi`, and `D3D11CreateDevice` crashed
+storing through the zeroed pointer (found with winedbg breakpoints on
+lavapipe). Wine already builds its PE code with `-fno-ret-protector`; the
+`devel/mingw-w64` driver wrappers now pass it too (13.0.0p1), and DXVK and
+vkd3d-proton were rebuilt (`>=13.0.0p1`). Anything built with the earlier
+toolchain (the C++ runtime is static in it) must be rebuilt.
+
+## Software Vulkan for testing (lavapipe)
+
+xenocara's Mesa has no lavapipe. `scripts/vm/lavapipe/build.sh` builds it
+from Mesa 25.0.7 (xenocara's version, checksum from the release notes) into
+a private prefix: one OpenBSD fix (`vk_device.c` uses `FALLTHROUGH` without
+`util/compiler.h` when neither `CLOCK_MONOTONIC_RAW` nor
+`CLOCK_MONOTONIC_FAST` exists) and an rpath to `/usr/local/llvm22/lib`.
+Test-only: it is not packaged and not a substitute for radv/anv performance.
+
+DXVK divided by the display refresh rate, which wine reports as 0 Hz when
+the X server gives none (Xvfb; also on Linux): every DXGI Present() died
+with an integer division by zero. `graphics/dxvk` patch
+`patch-src_util_util_misc_h` treats 0 Hz as an unknown period, a backport of
+upstream DXVK 0aea852 (2026-06-29; Proton's DXVK predates it).
+vkd3d-proton presents through DXVK's dxgi.dll and was affected the same way.

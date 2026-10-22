@@ -1,0 +1,10 @@
+--- src/vulkan/runtime/vk_device.c.orig
++++ src/vulkan/runtime/vk_device.c
+@@ -22,6 +22,7 @@
+  */
+ 
+ #include "vk_device.h"
++#include "util/compiler.h"
+ 
+ #include "vk_common_entrypoints.h"
+ #include "vk_instance.h"

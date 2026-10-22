@@ -16,13 +16,16 @@ exactly what has been run and with which result; nothing below claims more.
   (`ports/emulators/proton-wine`, 70+ patches).
 - 64-bit console and GUI programs, .NET programs (Wine Mono), the HTML
   engine (Wine Gecko); 7-Zip, Notepad++; the games OpenTTD and SuperTuxKart
-  (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound).
+  (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound) and GZDoom
+  with its Vulkan renderer (on lavapipe).
 - Direct3D 9/10/11 through wine's wined3d (OpenGL): the D3D11 conformance
-  tests pass. DXVK and vkd3d-proton are packaged but need a Vulkan driver
-  (radv/anv on real hardware) — **not tested yet**.
+  tests pass. DXVK renders Direct3D 11 and vkd3d-proton renders Direct3D 12 on
+  Mesa's software Vulkan (lavapipe, built for testing), in windows with
+  swap chains too; on real
+  radv/anv hardware they are **not tested yet**.
 - fsync — Proton's in-process synchronization — reimplemented on
   OpenBSD's futex(2) (waits on Windows objects: 0.35 µs instead of 17 µs).
-- About 230 of 278 Wine conformance test units pass; the remaining failures
+- 226 of 278 Wine conformance test units pass with fsync (p16); the remaining failures
   are explained in [docs/TESTING.md](docs/TESTING.md) and
   [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
@@ -67,5 +70,6 @@ Each port records the licenses of what it packages (`PERMIT_*` and the
 comments in its Makefile; installed license files under
 `share/doc/<package>`): Wine and the wine patches LGPL-2.1-or-later, DXVK
 zlib, vkd3d-proton LGPL-2.1, Wine Mono/Gecko and the fonts as listed in
-their ports. No license has been chosen yet for this repository's own
-scripts and documents.
+their ports. This repository's own scripts, tests, port definitions and
+documents are licensed under the GNU Lesser General Public License,
+version 2.1 or (at your option) any later version (`LICENSE`), like Wine.

@@ -52,13 +52,20 @@ wrappers() {
 	# meson's get_supported_arguments() compiles with
 	# -Werror=unused-command-line-argument and would otherwise reject every
 	# flag it probes.
+	# -fno-ret-protector: OpenBSD's clang enables retguard for every target,
+	# and in leaf functions it keeps the cookie in a register that is
+	# scratch in the SysV ABI but callee-saved on Windows (%rsi), without
+	# restoring it, so callers lose %rsi (DXVK crashed creating a D3D11
+	# device: DxvkShaderPipelineLibraryKey::hash() zeroed its caller's
+	# %rsi).  Wine builds its PE code with -fno-ret-protector for the same
+	# reason.
 	for drv in clang clang++; do
 		cat > "$d/bin/$TARGET-$drv" <<-EOF
 		#!/bin/sh
 		exec $LLVM/bin/$drv --target=$TARGET --sysroot=$SYSROOT \\
 		    -resource-dir=$RESDIR --start-no-unused-arguments \\
 		    -rtlib=compiler-rt -unwindlib=libunwind -stdlib=libc++ \\
-		    -fuse-ld=lld --end-no-unused-arguments "\$@"
+		    -fuse-ld=lld -fno-ret-protector --end-no-unused-arguments "\$@"
 		EOF
 		chmod 755 "$d/bin/$TARGET-$drv"
 	done
