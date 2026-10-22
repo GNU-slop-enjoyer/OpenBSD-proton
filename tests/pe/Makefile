@@ -10,6 +10,7 @@
 #   make audio    build audio.exe (WASAPI playback timing; mingw-w64 C)
 #   make syncbench  build syncbench.exe (synchronization latency; mingw-w64 C)
 #   make sleeptest  build sleeptest.exe (Sleep granularity; mingw-w64 C)
+#   make gsbench    build gsbench.exe (cost of %gs TEB access; mingw-w64 C)
 #   make clean
 
 CLANG ?=	clang
@@ -97,7 +98,13 @@ ${OUT}/sleeptest.exe: sleeptest.c
 	mkdir -p ${OUT}
 	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ sleeptest.c -lwinmm
 
+gsbench: ${OUT}/gsbench.exe
+
+${OUT}/gsbench.exe: gsbench.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ gsbench.c
+
 clean:
 	rm -f ${OUT}/*.exe ${OUT}/*.obj ${OUT}/*.lib
 
-.PHONY: all audio clean d3d sleeptest syncbench sysinfo
+.PHONY: all audio clean d3d gsbench sleeptest syncbench sysinfo
