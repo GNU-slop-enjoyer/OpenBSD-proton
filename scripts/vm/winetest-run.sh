@@ -43,10 +43,10 @@ for exe; do
 	fi
 	for u in $units; do
 		log=$OUTDIR/$name.$u.log
-		start=$(date +%s)
+		t0=$(date +%s)
 		timeout -s KILL "$TMO" "$WINE" "$exe" "$u" > "$log" 2>&1
 		rc=$?
-		secs=$(( $(date +%s) - start ))
+		secs=$(( $(date +%s) - t0 ))
 		# "0108:atom: 12 tests executed (0 marked as todo, 0 as flaky, 0 failures), 0 skipped."
 		sum=$(tr -d '\r' < "$log" | sed -n \
 		    's/^[0-9a-f]*:'"$u"': \([0-9]*\) tests executed (\([0-9]*\) marked as todo, [0-9]* as flaky, \([0-9]*\) failures*), \([0-9]*\) skipped.*/\1 \3 \2 \4/p' |
