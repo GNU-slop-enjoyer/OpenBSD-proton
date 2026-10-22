@@ -61,7 +61,22 @@ blockers, next action.
 - Found: Proton heap corruption through a symlink to a volume mount point
   (kernel32 volume, Linux too) — open, see COMPATIBILITY.
 
+### Graphics without a GPU (2026-10-22, late)
+- lavapipe (Mesa 25.0.7 software Vulkan) built into `~builder/lvp/inst`
+  in the VM with `scripts/vm/lavapipe/build.sh`; select with
+  `VK_ICD_FILENAMES=$HOME/lvp/inst/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+- Found and fixed: OpenBSD clang retguard in Windows-target code clobbers
+  %rsi (callee-saved on Win64) → `devel/mingw-w64` 13.0.0p1 passes
+  `-fno-ret-protector`; dxvk/vkd3d-proton rebuilt. DXVK divided by a 0 Hz
+  refresh rate in Present() → dxvk 2.7.1p1 patch.
+- Tested on lavapipe: d3d11render 8/8 (DXVK), d3d12render 12/12
+  (vkd3d-proton, new test), Dear ImGui D3D9/10/11/12 examples in windows,
+  GZDoom 4.14.2 + Freedoom with the Vulkan renderer. Screenshots in
+  docs/screenshots.
+
 ### Open / next actions
+0. Real-hardware run (the user): radv/anv instead of lavapipe; same tests
+   (`tests/pe` d3d11render/d3d12render, ImGui examples, GZDoom).
 1. Done 2026-10-22: wine-11.19p4 (batches 1-3) tested, results in the
    bundle README; `/usr/ports/emulators/wine` restored (installed package
    is still the local 11.19p4). proton-wine p15 packaged, installed and
