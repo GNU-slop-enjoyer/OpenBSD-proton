@@ -22,7 +22,7 @@ exactly what has been run and with which result; nothing below claims more.
   (radv/anv on real hardware) — **not tested yet**.
 - fsync — Proton's in-process synchronization — reimplemented on
   OpenBSD's futex(2) (waits on Windows objects: 0.35 µs instead of 17 µs).
-- About 230 of 278 Wine conformance test units pass; the remaining failures
+- 226 of 278 Wine conformance test units pass with fsync (p16); the remaining failures
   are explained in [docs/TESTING.md](docs/TESTING.md) and
   [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
