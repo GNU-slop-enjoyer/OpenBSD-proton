@@ -274,8 +274,12 @@ Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
   away without catching a single bad access, and the test then passes. So the
   corruption depends on the system allocator's layout or reuse, or the write
   is done by the kernel (a read/recv/getdents into a stale buffer) where a
-  replacement allocator turns it into a silent EFAULT. Next step: valgrind
-  (memcheck tracks kernel writes via syscall wrappers) on Linux, or a bisect
+  replacement allocator turns it into a silent EFAULT. Valgrind 3.27.1
+  (built in the scratchpad, load address moved to 0x70000000) cannot run
+  this wine: the preloader's reservations overwrite its own text under
+  valgrind, and without the preloader `virtual_init` cannot reserve its
+  view block in valgrind's 128 GB client space. Next step: a valgrind with
+  a larger client address space, or a bisect
   between Proton's wine and wine 11.19 (clean) — Proton's history in the
   work tree is shallow.
 
