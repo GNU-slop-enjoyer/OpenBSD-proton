@@ -4,10 +4,28 @@ recreated at the same descriptor (sock_recreate_unix_socket()) and the
 connect retried.  Stream sockets' fds become cacheable by clients only
 once connected, so no client holds the replaced descriptor.
 
+Dual-stack sockets (openbsd-proton): OpenBSD has no IPv4-mapped addresses
+on IPv6 sockets.  IPV6_V6ONLY requests for IPv6 sockets come here from
+ntdll; turning it off marks an unconnected stream socket dual-stack, and
+connect() to ::ffff:a.b.c.d recreates its Unix socket as IPv4 at the same
+descriptor and reports the addresses as IPv4-mapped IPv6
+(sock_connect_dualstack()).  UDP and listening sockets are not emulated.
+
 Index: server/sock.c
 --- server/sock.c.orig
 +++ server/sock.c
-@@ -1420,6 +1420,22 @@ static void sock_poll_event( struct fd *
+@@ -299,6 +299,10 @@ struct sock
+     unsigned int        reset : 1;   /* did we get a TCP reset? */
+     unsigned int        reuseaddr : 1; /* winsock SO_REUSEADDR option value */
+     unsigned int        exclusiveaddruse : 1; /* winsock SO_EXCLUSIVEADDRUSE option value */
++#ifdef __OpenBSD__
++    unsigned int        dualstack : 1; /* IPV6_V6ONLY turned off (emulated, see sock_connect_dualstack()) */
++    unsigned int        dualstack_v4 : 1; /* the Unix socket was replaced by an IPv4 one */
++#endif
+ };
+ 
+ static int is_tcp_socket( struct sock *sock )
+@@ -1420,6 +1424,22 @@ static void sock_poll_event( struct fd *
  
      if (event & (POLLERR | POLLHUP))
          error = sock_error( sock, &event );
@@ -30,7 +48,7 @@ Index: server/sock.c
  
      switch (sock->state)
      {
-@@ -1437,6 +1453,9 @@ static void sock_poll_event( struct fd *
+@@ -1437,6 +1457,9 @@ static void sock_poll_event( struct fd *
              sock->state = SOCK_CONNECTED;
              sock->connect_time = current_time;
              sock->errors[AFD_POLL_BIT_CONNECT_ERR] = 0;
@@ -40,7 +58,18 @@ Index: server/sock.c
          }
          break;
  
-@@ -2531,6 +2550,74 @@ static struct accept_req *alloc_accept_r
+@@ -1815,6 +1838,10 @@ static struct sock *create_socket(void)
+     sock->reset = 0;
+     sock->reuseaddr = 0;
+     sock->exclusiveaddruse = 0;
++#ifdef __OpenBSD__
++    sock->dualstack = 0;
++    sock->dualstack_v4 = 0;
++#endif
+     sock->rcvbuf = 0;
+     sock->sndbuf = 0;
+     sock->rcvtimeo = 0;
+@@ -2531,6 +2558,135 @@ static struct accept_req *alloc_accept_r
      return req;
  }
  
@@ -51,7 +80,7 @@ Index: server/sock.c
 + * the file flags, the common options and the local address.  Only called for
 + * unconnected stream sockets, whose fd clients cannot have cached (see the
 + * allow_fd_caching() calls). */
-+static int sock_recreate_unix_socket( struct sock *sock, int unix_fd )
++static int sock_recreate_unix_socket( struct sock *sock, int unix_fd, int new_family )
 +{
 +    static const int sol_options[] = { SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE, SO_OOBINLINE,
 +                                       SO_DONTROUTE, SO_BROADCAST, SO_RCVBUF, SO_SNDBUF };
@@ -60,7 +89,8 @@ Index: server/sock.c
 +    struct linger linger;
 +    int newfd, value, i, fl, fdfl, family;
 +
-+    if (sock->family == WS_AF_INET) family = AF_INET;
++    if (new_family) family = new_family;
++    else if (sock->family == WS_AF_INET || sock->dualstack_v4) family = AF_INET;
 +    else if (sock->family == WS_AF_INET6) family = AF_INET6;
 +    else return -1;
 +    /* may fail with EINVAL as well after the failed attempt */
@@ -79,7 +109,7 @@ Index: server/sock.c
 +    len = sizeof(value);
 +    if (!getsockopt( unix_fd, IPPROTO_TCP, TCP_NODELAY, &value, &len ))
 +        setsockopt( newfd, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value) );
-+    if (family == AF_INET6)
++    if (family == AF_INET6 && addr.addr.sa_family == AF_INET6)
 +    {
 +        len = sizeof(value);
 +        if (!getsockopt( unix_fd, IPPROTO_IPV6, IPV6_V6ONLY, &value, &len ))
@@ -100,6 +130,22 @@ Index: server/sock.c
 +    if (fl != -1) fcntl( unix_fd, F_SETFL, fl );
 +    if (fdfl != -1) fcntl( unix_fd, F_SETFD, fdfl );
 +
++    /* an IPv6 socket replaced by an IPv4 one keeps the port of a [::] binding */
++    if (family == AF_INET && addr.addr.sa_family == AF_INET6)
++    {
++        unsigned short port = addr.in6.sin6_port;
++
++        if (!port || !IN6_IS_ADDR_UNSPECIFIED( &addr.in6.sin6_addr )) addr.addr.sa_family = AF_UNSPEC;
++        else
++        {
++            memset( &addr.in, 0, sizeof(addr.in) );
++            addr.in.sin_len = sizeof(addr.in);
++            addr.in.sin_family = AF_INET;
++            addr.in.sin_port = port;
++            addr.in.sin_addr.s_addr = htonl( INADDR_ANY );
++        }
++    }
++
 +    /* keep the local address (explicit, or chosen by the failed attempt) */
 +    if ((addr.addr.sa_family == AF_INET && addr.in.sin_port) ||
 +        (addr.addr.sa_family == AF_INET6 && addr.in6.sin6_port))
@@ -107,28 +153,87 @@ Index: server/sock.c
 +        len = addr.addr.sa_family == AF_INET ? sizeof(addr.in) : sizeof(addr.in6);
 +        bind( unix_fd, &addr.addr, len );
 +    }
-+    if (debug_level) fprintf( stderr, "socket %p: recreated after failed connect\n", sock );
++    if (debug_level) fprintf( stderr, "socket %p: recreated (family %d)\n", sock, family );
 +    return 0;
++}
++
++/* OpenBSD has no IPv4-mapped addresses on IPv6 sockets (IPV6_V6ONLY cannot be
++ * turned off), so a dual-stack stream socket connecting to ::ffff:a.b.c.d gets
++ * an IPv4 Unix socket at the same descriptor (clients do not cache the fd of an
++ * unconnected stream socket); its addresses are reported back as IPv4-mapped.
++ * Dual-stack datagram and listening sockets are not emulated. */
++static int sock_connect_dualstack( struct sock *sock, int unix_fd, union unix_sockaddr *unix_addr,
++                                   socklen_t *unix_len )
++{
++    struct in_addr in;
++
++    if (!sock->dualstack || sock->dualstack_v4 || unix_addr->addr.sa_family != AF_INET6 ||
++        !IN6_IS_ADDR_V4MAPPED( &unix_addr->in6.sin6_addr ))
++        return 0;
++    if (sock_recreate_unix_socket( sock, unix_fd, AF_INET )) return -1;
++    sock->dualstack_v4 = 1;
++
++    memcpy( &in, &unix_addr->in6.sin6_addr.s6_addr[12], sizeof(in) );
++    unix_addr->in.sin_port = unix_addr->in6.sin6_port;  /* same offset in both */
++    memset( unix_addr->in.sin_zero, 0, sizeof(unix_addr->in.sin_zero) );
++    unix_addr->in.sin_addr = in;
++    unix_addr->in.sin_len = sizeof(unix_addr->in);
++    unix_addr->in.sin_family = AF_INET;
++    *unix_len = sizeof(unix_addr->in);
++    return 0;
++}
++
++/* report an IPv4 address of a replaced dual-stack socket as IPv4-mapped IPv6 */
++static void sock_map_dualstack_addr( struct sock *sock, union unix_sockaddr *unix_addr )
++{
++    struct in_addr in;
++    unsigned short port;
++
++    if (!sock->dualstack_v4 || unix_addr->addr.sa_family != AF_INET) return;
++    in = unix_addr->in.sin_addr;
++    port = unix_addr->in.sin_port;
++    memset( &unix_addr->in6, 0, sizeof(unix_addr->in6) );
++    unix_addr->in6.sin6_len = sizeof(unix_addr->in6);
++    unix_addr->in6.sin6_family = AF_INET6;
++    unix_addr->in6.sin6_port = port;
++    unix_addr->in6.sin6_addr.s6_addr[10] = 0xff;
++    unix_addr->in6.sin6_addr.s6_addr[11] = 0xff;
++    memcpy( &unix_addr->in6.sin6_addr.s6_addr[12], &in, sizeof(in) );
 +}
 +#endif
 +
  static void sock_ioctl( struct fd *fd, ioctl_code_t code, struct async *async )
  {
      struct sock *sock = get_fd_user( fd );
-@@ -2759,6 +2846,12 @@ static void sock_ioctl( struct fd *fd, i
+@@ -2747,6 +2903,14 @@ static void sock_ioctl( struct fd *fd, i
+             unix_addr.in.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+ 
+         memcpy( &peer_addr, &unix_addr, sizeof(unix_addr) );
++#ifdef __OpenBSD__
++        if (sock->type == WS_SOCK_STREAM && sock->state == SOCK_UNCONNECTED &&
++            sock_connect_dualstack( sock, unix_fd, &unix_addr, &unix_len ))
++        {
++            set_error( sock_get_ntstatus( errno ) );
++            return;
++        }
++#endif
+         ret = connect( unix_fd, &unix_addr.addr, unix_len );
+         if (ret < 0 && errno == ECONNABORTED)
+         {
+@@ -2759,6 +2923,12 @@ static void sock_ioctl( struct fd *fd, i
              ret = connect( unix_fd, &unix_addr.addr, unix_len );
          }
  
 +#ifdef __OpenBSD__
 +        if (ret < 0 && errno == EINVAL && sock->type == WS_SOCK_STREAM &&
-+            sock->state == SOCK_UNCONNECTED && !sock_recreate_unix_socket( sock, unix_fd ))
++            sock->state == SOCK_UNCONNECTED && !sock_recreate_unix_socket( sock, unix_fd, 0 ))
 +            ret = connect( unix_fd, &unix_addr.addr, unix_len );
 +#endif
 +
          if (ret < 0 && errno == EACCES && sock->state == SOCK_CONNECTIONLESS && unix_addr.addr.sa_family == AF_INET)
          {
              int broadcast, saved_errno;
-@@ -2785,6 +2878,12 @@ static void sock_ioctl( struct fd *fd, i
+@@ -2785,10 +2955,19 @@ static void sock_ioctl( struct fd *fd, i
          }
  
          /* a connected or connecting socket can no longer be accepted into */
@@ -141,7 +246,64 @@ Index: server/sock.c
          allow_fd_caching( sock->fd );
  
          unix_len = sizeof(unix_addr);
-@@ -4110,7 +4209,13 @@ DECL_HANDLER(send_socket)
+         getsockname( unix_fd, &unix_addr.addr, &unix_len );
++#ifdef __OpenBSD__
++        sock_map_dualstack_addr( sock, &unix_addr );
++#endif
+         sock->addr_len = sockaddr_from_unix( &unix_addr, &sock->addr.addr, sizeof(sock->addr) );
+         sock->peer_addr_len = sockaddr_from_unix( &peer_addr, &sock->peer_addr.addr, sizeof(sock->peer_addr));
+ 
+@@ -3506,6 +3685,49 @@ static void sock_ioctl( struct fd *fd, i
+         return;
+     }
+ 
++#ifdef __OpenBSD__
++    /* forwarded by ntdll for IPv6 sockets, see sock_connect_dualstack() */
++    case IOCTL_AFD_WINE_SET_IPV6_V6ONLY:
++    {
++        int v6only;
++
++        if (get_req_data_size() < sizeof(v6only))
++        {
++            set_error( STATUS_BUFFER_TOO_SMALL );
++            return;
++        }
++        v6only = *(int *)get_req_data();
++        if (sock->family != WS_AF_INET6 || (!v6only && (sock->type != WS_SOCK_STREAM ||
++            sock->state != SOCK_UNCONNECTED || sock->bound || sock->dualstack_v4)))
++        {
++            set_error( STATUS_INVALID_PARAMETER );
++            return;
++        }
++        sock->dualstack = !v6only;
++        return;
++    }
++
++    case IOCTL_AFD_WINE_GET_IPV6_V6ONLY:
++    {
++        int v6only = 1;
++        socklen_t len = sizeof(v6only);
++
++        if (!get_reply_max_size())
++        {
++            set_error( STATUS_BUFFER_TOO_SMALL );
++            return;
++        }
++        if (sock->dualstack) v6only = 0;
++        else if (getsockopt( unix_fd, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, &len ))
++        {
++            set_error( sock_get_ntstatus( errno ) );
++            return;
++        }
++        set_reply_data( &v6only, min( sizeof(v6only), get_reply_max_size() ));
++        return;
++    }
++#endif
++
+     case IOCTL_AFD_WINE_GET_SO_EXCLUSIVEADDRUSE:
+     {
+         int exclusive;
+@@ -4110,7 +4332,13 @@ DECL_HANDLER(send_socket)
           * asyncs will not consume all available space; if there's no space
           * available, the current request won't be immediately satiable.
           */

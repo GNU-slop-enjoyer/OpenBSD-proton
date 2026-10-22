@@ -169,6 +169,7 @@ prebuilt Source Han Sans OTFs and Proton's Ume fonts instead of afdko.
 | IP_MULTICAST_TTL / IP_MULTICAST_LOOP are `u_char` and must be set with length 1 (`ip_setmoptions`: `m_len != 1` → EINVAL) | setting them the Windows way (int) failed with WSAEINVAL — LAN discovery/multicast | **fixed** (p2) on OpenBSD |
 | other options reject lengths ≠ sizeof(int) | only odd-length probes in the test | open (edge case) |
 | no per-socket TCP_KEEPIDLE/TCP_KEEPCNT/TCP_KEEPINTVL (sysctl only) | SIO_KEEPALIVE_VALS/TCP_KEEPALIVE cannot be honoured | platform limitation |
+| no IPv4-mapped addresses on IPv6 sockets: IPV6_V6ONLY cannot be turned off (.NET 5+ creates dual-mode IPv6 sockets by default) | dual-stack clients could not reach IPv4 hosts | **TCP clients emulated** (p18): ntdll forwards IPV6_V6ONLY on IPv6 sockets to wineserver, which records dual-stack, and at connect() to ::ffff:a.b.c.d replaces the Unix socket by an IPv4 one at the same descriptor (`sock_connect_dualstack()`; clients do not cache unconnected stream sockets' fds) and reports addresses as IPv4-mapped. Dual-stack **UDP and listening sockets are not emulated** (they need two Unix sockets behind one handle and the client-side fd cache) and still fail with WSAEINVAL; `tests/pe/dualstack.c` |
 | connect() on a TCP socket whose previous connect failed returns EINVAL (Windows allows the retry) | a retrying client never connects; the test hangs in accept() | fixed (p3): wineserver `sock_recreate_unix_socket()` replaces the Unix socket before a retried connect; fd caching is deferred until connected |
 
 ## 32-bit installers (found with real applications, session 2)
@@ -263,6 +264,24 @@ Measured with `tests/pe/syncbench.c` and `sleep1.c` (TESTING.md).
   used after destroy (LD_PRELOAD check). Detecting malloc: `lookup_unix_name`
   in the nested lookup. Programs that never point a symlink at a mounted
   volume folder do not reach it.
+  Later experiments (2026-10-22), all on Linux with the pristine Proton build
+  unless noted: an LD_PRELOAD that tracks every heap block shows the freed
+  pointer is a valid block (glibc's "(out)" comes from its corrupted chunk
+  header); four replacement allocators — PROT_NONE freed blocks (OpenBSD and
+  Linux), guard page plus checked tail canaries with a periodic scan of all
+  live blocks, poisoned quarantine of freed blocks with a free-time
+  backtrace, and a 32-byte canary before each block — each make the crash go
+  away without catching a single bad access, and the test then passes. So the
+  corruption depends on the system allocator's layout or reuse, or the write
+  is done by the kernel (a read/recv/getdents into a stale buffer) where a
+  replacement allocator turns it into a silent EFAULT. Valgrind 3.27.1
+  (built in the scratchpad, load address moved to 0x70000000) cannot run
+  this wine: the preloader's reservations overwrite its own text under
+  valgrind, and without the preloader `virtual_init` cannot reserve its
+  view block in valgrind's 128 GB client space. Next step: a valgrind with
+  a larger client address space, or a bisect
+  between Proton's wine and wine 11.19 (clean) — Proton's history in the
+  work tree is shallow.
 
 ## Retguard in Windows-target code (found with lavapipe, session 3)
 

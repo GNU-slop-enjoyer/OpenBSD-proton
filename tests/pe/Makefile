@@ -6,6 +6,7 @@
 #                   d3d12render.exe (needs a
 #                   mingw-w64 C++ toolchain, e.g. devel/mingw-w64; set
 #                   MINGW_CXX)
+#   make dualstack build dualstack.exe (IPv4-mapped IPv6 TCP clients)
 #   make sysinfo  build sysinfo.exe (process memory/CPU information and
 #                 debugger attach; needs a mingw-w64 C toolchain, MINGW_CC)
 #   make audio    build audio.exe (WASAPI playback timing; mingw-w64 C)
@@ -79,6 +80,12 @@ ${OUT}/d3d12render.exe: d3d12render.cpp
 	mkdir -p ${OUT}
 	${MINGW_CXX} -std=c++17 -O2 -Wall -Wextra -Werror -static \
 		-o $@ d3d12render.cpp -ld3d12
+
+dualstack: ${OUT}/dualstack.exe
+
+${OUT}/dualstack.exe: dualstack.c
+	mkdir -p ${OUT}
+	${MINGW_CC} -O2 -Wall -Wextra -Werror -o $@ dualstack.c -lws2_32
 
 sysinfo: ${OUT}/sysinfo.exe
 
