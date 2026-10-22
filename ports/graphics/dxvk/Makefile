@@ -12,7 +12,7 @@ GH_ACCOUNT =		doitsujin
 GH_PROJECT =		dxvk
 GH_COMMIT =		a6764047e587178283fcde4073ae6e1410af594f
 DISTNAME =		dxvk-${V}.20260720
-REVISION =		0
+REVISION =		1
 
 CATEGORIES =		graphics emulators
 

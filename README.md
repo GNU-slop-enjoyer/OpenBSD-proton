@@ -19,7 +19,8 @@ exactly what has been run and with which result; nothing below claims more.
   (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound).
 - Direct3D 9/10/11 through wine's wined3d (OpenGL): the D3D11 conformance
   tests pass. DXVK renders Direct3D 11 and vkd3d-proton renders Direct3D 12 on
-  Mesa's software Vulkan (lavapipe, built for testing); on real
+  Mesa's software Vulkan (lavapipe, built for testing), in windows with
+  swap chains too; on real
   radv/anv hardware they are **not tested yet**.
 - fsync — Proton's in-process synchronization — reimplemented on
   OpenBSD's futex(2) (waits on Windows objects: 0.35 µs instead of 17 µs).

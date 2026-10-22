@@ -1,0 +1,29 @@
+An unknown display refresh rate is reported as 0 Hz (wine's
+EnumDisplaySettings gives dmDisplayFrequency 0 when the X server has no
+rate, e.g. Xvfb), and computeRefreshPeriod() divided by it: every DXGI
+Present() crashed with an integer division by zero in
+DxgiOutput::CacheMonitorData().  Treat 0 Hz as an unknown period and count
+no refreshes for it.
+Unchanged in upstream dxvk master as of 2026-10-22.
+
+Index: src/util/util_misc.h
+--- src/util/util_misc.h.orig
++++ src/util/util_misc.h
+@@ -21,6 +21,8 @@
+    */
+   inline auto computeRefreshPeriod(uint64_t numerator, uint64_t denominator) {
+     using unit = std::chrono::nanoseconds;
++    if (!numerator)
++      return unit(0);
+     unit::rep ns = unit::rep(unit::period::den * denominator)
+                  / unit::rep(unit::period::num * numerator);
+     return unit(ns);
+@@ -36,7 +38,7 @@
+    */
+   template<typename TimePoint, typename Duration>
+   uint64_t computeRefreshCount(TimePoint t0, TimePoint t1, Duration refreshPeriod) {
+-    if (t1 < t0)
++    if (t1 < t0 || !refreshPeriod.count())
+       return 0;
+ 
+     auto duration = std::chrono::duration_cast<Duration>(t1 - t0);

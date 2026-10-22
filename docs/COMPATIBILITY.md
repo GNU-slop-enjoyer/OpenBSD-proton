@@ -285,3 +285,10 @@ a private prefix: one OpenBSD fix (`vk_device.c` uses `FALLTHROUGH` without
 `util/compiler.h` when neither `CLOCK_MONOTONIC_RAW` nor
 `CLOCK_MONOTONIC_FAST` exists) and an rpath to `/usr/local/llvm22/lib`.
 Test-only: it is not packaged and not a substitute for radv/anv performance.
+
+DXVK divided by the display refresh rate, which wine reports as 0 Hz when
+the X server gives none (Xvfb; also on Linux): every DXGI Present() died
+with an integer division by zero. `graphics/dxvk` patch
+`patch-src_util_util_misc_h` treats 0 Hz as an unknown period (upstream
+DXVK has no guard as of 2026-10-22). vkd3d-proton presents through DXVK's
+dxgi.dll and was affected the same way.
