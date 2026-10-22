@@ -70,5 +70,6 @@ Each port records the licenses of what it packages (`PERMIT_*` and the
 comments in its Makefile; installed license files under
 `share/doc/<package>`): Wine and the wine patches LGPL-2.1-or-later, DXVK
 zlib, vkd3d-proton LGPL-2.1, Wine Mono/Gecko and the fonts as listed in
-their ports. No license has been chosen yet for this repository's own
-scripts and documents.
+their ports. This repository's own scripts, tests, port definitions and
+documents are licensed under the GNU Lesser General Public License,
+version 2.1 or (at your option) any later version (`LICENSE`), like Wine.

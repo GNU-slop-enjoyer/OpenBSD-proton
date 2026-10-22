@@ -289,6 +289,6 @@ Test-only: it is not packaged and not a substitute for radv/anv performance.
 DXVK divided by the display refresh rate, which wine reports as 0 Hz when
 the X server gives none (Xvfb; also on Linux): every DXGI Present() died
 with an integer division by zero. `graphics/dxvk` patch
-`patch-src_util_util_misc_h` treats 0 Hz as an unknown period (upstream
-DXVK has no guard as of 2026-10-22). vkd3d-proton presents through DXVK's
-dxgi.dll and was affected the same way.
+`patch-src_util_util_misc_h` treats 0 Hz as an unknown period, a backport of
+upstream DXVK 0aea852 (2026-06-29; Proton's DXVK predates it).
+vkd3d-proton presents through DXVK's dxgi.dll and was affected the same way.
