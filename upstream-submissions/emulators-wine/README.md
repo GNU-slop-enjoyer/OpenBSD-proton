@@ -83,6 +83,10 @@ libc logs 'vfprintf %s NULL in "%s:%s"' to syslog for every process that
 loads winex11 (193 lines in the VM's /var/log/messages). Fixed with an
 empty variant; a fresh wineboot in the 11.19 build tree logs nothing.
 This one could go to WineHQ directly.
+Likewise wineserver's request trace passes a NULL cur_data to %.*s for
+empty strings (`WINEDEBUG=+server`), logged the same way; fixed in
+server/trace.c (patches/patch-server_trace_c, new: the port does not
+patch that file).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):

@@ -1,0 +1,17 @@
+With no variable data cur_data is NULL, and %.*s with a NULL pointer is
+undefined even with precision 0; OpenBSD's libc logs
+'vfprintf %s NULL in "%s"%.*s""' to syslog for every such request in
+a +server trace.  Print an empty string.  (Upstream wine has the same code.)
+
+Index: server/trace.c
+--- server/trace.c.orig
++++ server/trace.c
+@@ -670,7 +670,7 @@ static void dump_varargs_bytes( const ch
+ 
+ static void dump_varargs_string( const char *prefix, data_size_t size )
+ {
+-    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, (const char *)cur_data );
++    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, size ? (const char *)cur_data : "" );
+     remove_data( size );
+ }
+ 

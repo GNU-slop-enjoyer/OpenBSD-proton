@@ -1722,3 +1722,15 @@ diff -ruN -x '*.orig' wine1119-base/server/sock.c wine1119-chg/server/sock.c
          allow_fd_caching( sock->fd );
  
          unix_len = sizeof(unix_addr);
+diff -ruN -x '*.orig' wine1119-base/server/trace.c wine1119-chg/server/trace.c
+--- a/server/trace.c	2026-10-02 23:15:08.000000000 +0200
++++ b/server/trace.c	2026-10-22 07:19:36.568822489 +0200
+@@ -670,7 +670,7 @@
+ 
+ static void dump_varargs_string( const char *prefix, data_size_t size )
+ {
+-    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, (const char *)cur_data );
++    fprintf( stderr, "%s\"%.*s\"", prefix, (int)size, size ? (const char *)cur_data : "" );
+     remove_data( size );
+ }
+ 
