@@ -8,6 +8,9 @@ waiters exist.  Other systems keep the ENOSYS stubs.
 The server reserves shm slots 0-255 for that table and wakes registered
 waiters (wine/fsync_openbsd.h).
 
+The process cleanup skips the reserved waiter table; entries of killed
+threads are cleared (fsync_cleanup_thread_waiters()).
+
 Index: server/fsync.c
 --- server/fsync.c.orig
 +++ server/fsync.c
@@ -52,7 +55,46 @@ Index: server/fsync.c
      unsigned int i;
      int shm_idx;
      int *shm;
-@@ -310,7 +321,20 @@ int fsync_grab_shm_idx( unsigned int shm
+@@ -286,6 +297,9 @@ void fsync_cleanup_process_shm_indices(
+ 
+     for (i = 0; i < shm_idx_free_map_size; ++i)
+     {
++#ifdef __OpenBSD__
++        if (i < FSYNC_RESERVED_SLOTS / BITS_IN_FREE_MAP_WORD) continue;  /* waiter table */
++#endif
+         free_word = shm_idx_free_map[i];
+         if (free_word == ~(uint64_t)0) continue;
+         shmbase = get_shm( i * BITS_IN_FREE_MAP_WORD );
+@@ -299,6 +313,28 @@ void fsync_cleanup_process_shm_indices(
+     }
+ }
+ 
++#ifdef __OpenBSD__
++/* a thread that is killed while waiting on several futexes leaves its entry
++ * in the waiter table (wine/fsync_openbsd.h); the count of registered waiters
++ * is only a hint for wakers and stays as it is */
++void fsync_cleanup_thread_waiters( int unix_tid )
++{
++    struct fsync_waiter *waiters;
++    unsigned int i;
++
++    if (!is_fsync_initialized || unix_tid <= 0) return;
++    waiters = (struct fsync_waiter *)((int *)get_shm( 0 ) + 4);
++    for (i = 0; i < FSYNC_WAITERS; i++)
++    {
++        int owner = unix_tid;
++
++        if (__atomic_load_n( &waiters[i].owner, __ATOMIC_SEQ_CST ) != unix_tid) continue;
++        __atomic_store_n( &waiters[i].mask, 0, __ATOMIC_SEQ_CST );
++        __atomic_compare_exchange_n( &waiters[i].owner, &owner, 0, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST );
++    }
++}
++#endif
++
+ int fsync_grab_shm_idx( unsigned int shm_idx )
+ {
+     int *shm;
+@@ -310,7 +346,20 @@ int fsync_grab_shm_idx( unsigned int shm
  
  static inline int futex_wake( int *addr, int val )
  {

@@ -20,7 +20,7 @@ Index: dlls/ntdll/unix/fsync.c
  static inline int futex_wait_multiple( const struct futex_waitv *futexes,
          int count, const struct timespec64 *end, clockid_t clock_id )
  {
-@@ -151,6 +152,156 @@ static inline int futex_wake( int *addr,
+@@ -151,6 +152,161 @@ static inline int futex_wake( int *addr,
  {
      return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
  }
@@ -97,6 +97,7 @@ Index: dlls/ntdll/unix/fsync.c
 +    struct fsync_waiter *waiter;
 +    struct timespec ts;
 +    uint64_t mask = 0;
++    int owner = ntdll_get_thread_data()->unix_tid ? ntdll_get_thread_data()->unix_tid : 1;
 +    int i, ret;
 +
 +    if (!futexes)  /* probe from fsync_init() */
@@ -127,7 +128,7 @@ Index: dlls/ntdll/unix/fsync.c
 +    if (count == 1)
 +        return futex( u64_to_ptr(futexes[0].uaddr), FUTEX_WAIT, futexes[0].val, end ? &ts : NULL, NULL );
 +
-+    if (!(waiter = get_waiter( ntdll_get_thread_data()->unix_tid ? ntdll_get_thread_data()->unix_tid : 1 )))
++    if (!(waiter = get_waiter( owner )))
 +        return futex_wait_multiple_generation( futexes, count, end ? &ts : NULL );
 +
 +    for (i = 0; i < count; i++) mask |= fsync_futex_bucket( u64_to_ptr(futexes[i].uaddr) );
@@ -145,9 +146,13 @@ Index: dlls/ntdll/unix/fsync.c
 +    }
 +    ret = futex( (volatile uint32_t *)&waiter->wake, FUTEX_WAIT, 0, end ? &ts : NULL, NULL );
 +done:
-+    __atomic_store_n( &waiter->mask, 0, __ATOMIC_SEQ_CST );
-+    __atomic_sub_fetch( &wait_any[2], 1, __ATOMIC_SEQ_CST );
-+    __atomic_store_n( &waiter->owner, 0, __ATOMIC_SEQ_CST );
++    /* the server clears the entry of a killed thread (fsync_cleanup_thread_waiters) */
++    if (__atomic_load_n( &waiter->owner, __ATOMIC_SEQ_CST ) == owner)
++    {
++        __atomic_store_n( &waiter->mask, 0, __ATOMIC_SEQ_CST );
++        __atomic_sub_fetch( &wait_any[2], 1, __ATOMIC_SEQ_CST );
++        __atomic_store_n( &waiter->owner, 0, __ATOMIC_SEQ_CST );
++    }
 +    return ret;
 +}
 +
@@ -177,7 +182,7 @@ Index: dlls/ntdll/unix/fsync.c
  
  struct fsync
  {
-@@ -456,7 +607,7 @@ void fsync_init( DWORD pid )
+@@ -456,7 +612,7 @@ void fsync_init( DWORD pid )
  
  
      fsync_enabled = 1;
@@ -186,7 +191,7 @@ Index: dlls/ntdll/unix/fsync.c
      if (errno == ENOSYS || errno == EPERM)
      {
          ERR("Server is running with WINEFSYNC but this process can't use __NR_futex_waitv.\n");
-@@ -483,6 +634,9 @@ void fsync_init( DWORD pid )
+@@ -483,6 +639,9 @@ void fsync_init( DWORD pid )
  
      current_pid = pid;
      assert( current_pid );

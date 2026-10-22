@@ -2,6 +2,8 @@ OpenBSD cross-process thread signal delivery from emulators/wine, plus
 an include of sig_openbsd.h (OpenBSD clang only warns on implicit
 declarations).
 
+kill_thread(): clear the fsync waiter table entries of the killed thread.
+
 Index: server/thread.c
 --- server/thread.c.orig
 +++ server/thread.c
@@ -15,7 +17,17 @@ Index: server/thread.c
  
  /* thread queues */
  
-@@ -1814,6 +1817,10 @@ DECL_HANDLER(init_first_thread)
+@@ -1657,6 +1660,9 @@ void kill_thread( struct thread *thread,
+     }
+     kill_console_processes( thread, 0 );
+     abandon_mutexes( thread );
++#ifdef __OpenBSD__
++    if (do_fsync()) fsync_cleanup_thread_waiters( thread->unix_tid );
++#endif
+     signal_sync( thread->sync );
+     if (violent_death) send_thread_signal( thread, SIGQUIT );
+     cleanup_thread( thread );
+@@ -1814,6 +1820,10 @@ DECL_HANDLER(init_first_thread)
      current->unix_pid = process->unix_pid = req->unix_pid;
      current->unix_tid = req->unix_tid;
  
@@ -26,7 +38,7 @@ Index: server/thread.c
      if (!process->parent_id)
          process->affinity = current->affinity = get_thread_affinity( current );
      else
-@@ -2223,6 +2230,26 @@ DECL_HANDLER(queue_apc)
+@@ -2223,6 +2233,26 @@ DECL_HANDLER(queue_apc)
              }
          }
          break;

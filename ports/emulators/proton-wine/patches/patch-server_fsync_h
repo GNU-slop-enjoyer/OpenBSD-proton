@@ -1,0 +1,15 @@
+fsync_cleanup_thread_waiters() (wine/fsync_openbsd.h waiter table).
+
+Index: server/fsync.h
+--- server/fsync.h.orig
++++ server/fsync.h
+@@ -28,6 +28,9 @@ extern void fsync_set_event( unsigned in
+ extern void fsync_reset_event( unsigned int shm_idx );
+ extern void fsync_abandon_mutex( unsigned int shm_idx, thread_id_t tid );
+ extern void fsync_cleanup_process_shm_indices( process_id_t id );
++#ifdef __OpenBSD__
++extern void fsync_cleanup_thread_waiters( int unix_tid );
++#endif
+ 
+ extern int fsync_check_support(void);
+ extern int do_fsync_cached;
