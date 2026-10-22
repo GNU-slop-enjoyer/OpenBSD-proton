@@ -7,7 +7,7 @@
 #   WINE    e.g. /usr/local/lib/proton-wine/bin/wine
 #   OUTDIR  receives one log per unit and summary.txt
 # Environment: WINEPREFIX (default ~/pfx-winetest), UNIT_TIMEOUT (seconds,
-# default 300).
+# default 300).  LC_CTYPE defaults to C.UTF-8; the tests run in OUTDIR/cwd.
 #
 # summary.txt has one line per unit:
 #   <exe> <unit> <status> <executed> <failures> <todo> <skipped> <rc> <seconds>
@@ -17,14 +17,23 @@ set -u
 
 WINE=$1 OUTDIR=$2; shift 2
 export WINEPREFIX=${WINEPREFIX:-$HOME/pfx-winetest}
+# like the proton-openbsd launcher: non-ASCII file names need a UTF-8 locale
+case ${LC_ALL:-${LC_CTYPE:-}} in *UTF-8*) ;; *) export LC_CTYPE=C.UTF-8 ;; esac
 export WINEDEBUG=${WINEDEBUG:--all}
 TMO=${UNIT_TIMEOUT:-300}
 mkdir -p "$OUTDIR"
 : > "$OUTDIR/summary.txt"
 
+OUTDIR=$(cd "$OUTDIR" && pwd)
 [ -d "$WINEPREFIX" ] || "$WINE" wineboot -i > "$OUTDIR/wineboot.log" 2>&1
+# tests create files in the current directory (ole32 storage32 makes
+# "winetest", which fails where ~/winetest exists): run them in a fresh one
+start=$(pwd)
+case $WINE in /*) ;; */*) WINE=$start/$WINE ;; esac
+mkdir -p "$OUTDIR/cwd" && cd "$OUTDIR/cwd" || exit 1
 
 for exe; do
+	case $exe in /*) ;; *) exe=$start/$exe ;; esac
 	name=$(basename "$exe" .exe)
 	units=$("$WINE" "$exe" --list 2>/dev/null | tr -d '\r' |
 	    sed -n 's/^    //p')

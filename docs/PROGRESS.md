@@ -58,11 +58,15 @@ blockers, next action.
 3. Done (p16, work tree 8b1c813, packaged and installed in the VM):
    server-path timed waits precise in precise-sleep mode
    (WaitForSingleObject(ev, 1) 20 -> 1.00 ms with WINEFSYNC=0).
-4. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
+4. Proton heap corruption through a symlink to a volume mount point
+   (kernel32_test volume; also on Linux; see COMPATIBILITY "Reparse points
+   and known file-system gaps") — find the writer (candidate: diff Proton
+   vs 11.19 code reached from GetVolumePathNameW).
+5. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
    dual-stack sockets (OpenBSD has no IPv4-mapped IPv6); DOS hidden/system
    attributes (no xattrs, no UF_HIDDEN on OpenBSD); winetest runner
    empty-log flake.
-5. Real-hardware DXVK/vkd3d-proton test (the user, last); upstream
+6. Real-hardware DXVK/vkd3d-proton test (the user, last); upstream
    submission (needs the user's OK).
 
 ## 2026-10-21 — Session 2: Windows toolchain, DXVK, vkd3d-proton, launcher, winetest
