@@ -113,6 +113,131 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/file.c wine1119-chg/dlls/ntd
      {
          int fd = open( path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK );
          if (fd != -1)
+diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/gs_openbsd.c wine1119-chg/dlls/ntdll/unix/gs_openbsd.c
+--- a/dlls/ntdll/unix/gs_openbsd.c	2026-10-21 10:30:15.224050662 +0200
++++ b/dlls/ntdll/unix/gs_openbsd.c	2026-10-22 04:53:45.690506756 +0200
+@@ -527,6 +527,10 @@
+ /* Code building constants */
+ #define JMP_REL32           0xe9    /* used to replace the command and then jump back from the stub */
+ #define JMP_REL32_LEN       5       /* length of JMP_REL32 - e9 and 32 bits of rel jump offset */
++#define JMP_REL8            0xeb    /* short jump to a pad, for instructions shorter than JMP_REL32_LEN */
++#define JMP_REL8_LEN        2
++#define RET                 0xc3
++#define GS_PAD_ALIGN        16      /* functions start 16-byte aligned; padding before them is never run */
+ #define JMP_RIP             0xff    /* jmp *0(%rip) */
+ #define INT3                0xcc    /* we are using int3 to pad our codestubs and source of our jumps to trap any stray jumps */
+ #define LEA                 0x8d    /* lea */
+@@ -819,6 +823,20 @@
+     struct gs_stub *stub;
+     int rel;
+ 
++    if (avail >= JMP_REL8_LEN && bytes[0] == JMP_REL8)
++    {
++        /* short jump to a pad with a jump to the stub (see find_gs_pad) */
++        BYTE *pad = rip + JMP_REL8_LEN + (signed char)bytes[1];
++        BYTE pad_bytes[JMP_REL32_LEN];
++
++        if (virtual_uninterrupted_read_memory( pad, pad_bytes, sizeof(pad_bytes) ) != sizeof(pad_bytes) ||
++            pad_bytes[0] != JMP_REL32) return FALSE;
++        memcpy( &rel, pad_bytes + 1, 4 );
++        if (!(stub = virtual_code_stub_slot( pad + JMP_REL32_LEN + rel )) || stub->site != rip) return FALSE;
++        return decode_gs_insn( &insn, stub->insn, stub->insn_len) &&
++            get_gs_insn_offset( &insn, ucontext ) == fault_addr;
++    }
++
+     if (avail >= JMP_REL32_LEN && bytes[0] == JMP_REL32)
+     {
+         memcpy( &rel, bytes + 1, 4 );
+@@ -836,6 +854,53 @@
+ 
+ 
+ /***********************************************************************
++ *           find_gs_pad
++ *
++ * An instruction shorter than a jmp rel32 has room for a short jump (eb rel8).
++ * Look within its reach for int3 padding between functions to hold the
++ * jmp rel32 to the stub: a run of int3 right after a ret that ends where the
++ * next function starts (16-byte aligned).  Such padding is never executed,
++ * unlike int3 that follows a conditional jump (retguard traps).
++ * Returns the pad address or NULL.
++ */
++static BYTE *find_gs_pad( BYTE *site, unsigned int insn_len )
++{
++    BYTE buf[256 + JMP_REL32_LEN];
++    BYTE *next = site + JMP_REL8_LEN;  /* the rel8 is relative to this */
++    BYTE *start = next - 128;
++    unsigned int avail, i, run;
++
++    /* the window may begin in an unmapped page; read from the site instead then */
++    if ((avail = virtual_uninterrupted_read_memory( start, buf, sizeof(buf) )) < sizeof(buf) / 2)
++    {
++        start = site;
++        avail = virtual_uninterrupted_read_memory( start, buf, 128 + JMP_REL8_LEN );
++    }
++
++    for (i = 1, run = 0; i < avail; i++)
++    {
++        BYTE *addr = start + i;
++
++        if (buf[i] != INT3) { run = 0; continue; }
++        if (!run && buf[i - 1] != RET) continue;  /* only runs right after a ret */
++        run++;
++        if (run < JMP_REL32_LEN) continue;
++        /* addr is the 5th int3 of the run: the pad is addr - 4; check where the run ends */
++        {
++            BYTE *pad = addr - (JMP_REL32_LEN - 1), *end = addr + 1;
++            unsigned int j = i + 1;
++
++            while (j < avail && buf[j] == INT3) { j++; end++; }
++            if (j == avail || (ULONG_PTR)end % GS_PAD_ALIGN) { run = 0; continue; }
++            if (pad + JMP_REL32_LEN > site && pad < site + insn_len) { run = 0; continue; }
++            if (pad - next < -128 || pad - next > 127) { run = 0; continue; }
++            return pad;
++        }
++    }
++    return NULL;
++}
++
++/***********************************************************************
+  *           gs_handle_fault
+  * Page fault handler
+  */
+@@ -913,6 +978,35 @@
+         }
+     }
+ 
++    /* too short for a jmp rel32: a short jump to int3 padding that holds one */
++    if (insn.len >= JMP_REL8_LEN && insn.len < JMP_REL32_LEN)
++    {
++        BYTE *pad = find_gs_pad( rip, insn.len );
++        BYTE pad_old[JMP_REL32_LEN], pad_new[JMP_REL32_LEN];
++
++        if (pad) rel = slot->code - (pad + JMP_REL32_LEN);
++        if (pad && rel == (int)rel)
++        {
++            memset( pad_old, INT3, sizeof(pad_old) );
++            pad_new[0] = JMP_REL32;
++            memcpy( pad_new + 1, &rel, 4 );
++            if (virtual_patch_code( pad, pad_old, pad_new, JMP_REL32_LEN ) == PATCH_DONE)
++            {
++                new_bytes[0] = JMP_REL8;
++                new_bytes[1] = (BYTE)(pad - (rip + JMP_REL8_LEN));
++                switch (virtual_patch_code( rip, insn.bytes, new_bytes, JMP_REL8_LEN ))
++                {
++                    case PATCH_DONE:
++                    case PATCH_CHANGED: /* someone else patched the site; the pad keeps pointing to our stub */
++                        return TRUE;
++                    case PATCH_FAILED:
++                        break;
++                }
++                /* site can't be patched: leave the pad (nothing jumps there) and redirect */
++            }
++        }
++    }
++
+     /* case 4 - unpatchable redirect */
+     if (!(used = add_gs_redirect( slot, &insn )))
+     {
 diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/process.c wine1119-chg/dlls/ntdll/unix/process.c
 --- a/dlls/ntdll/unix/process.c	2026-10-21 10:30:15.232094899 +0200
 +++ b/dlls/ntdll/unix/process.c	2026-10-21 18:02:20.313672502 +0200

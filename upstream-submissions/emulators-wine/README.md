@@ -67,6 +67,11 @@ or set WINE_PRECISE_SLEEP=1 (the 100 Hz clock made Sleep(1) take 20 ms).
 Directory reparse points (symlinks/junctions to directories) and any
 reparse tag; in proton-wine kernel32_test file went from a crash to 0
 failures and ntdll_test file from 124 to 27 failures.
+Fourth batch (2026-10-22): %gs instructions shorter than 5 bytes (e.g.
+mov %gs:(%rcx),%rax) get a jmp rel8 to int3 padding between functions that
+holds the jmp rel32 to their stub, instead of faulting on every execution
+(tests/pe/gsbench.c: ~5 us -> 5.3 ns when such padding is in reach;
+gs_openbsd.c is identical in both ports, so the patch is the same file).
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):
