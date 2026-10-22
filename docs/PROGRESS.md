@@ -50,12 +50,11 @@ blockers, next action.
   added to the bundle files afterwards.
 
 ### Open / next actions
-1. Finish wine-11.19p4: install, test (ntdll info, sysinfo, ws2_32
-   protocol, kernel32 file/pipe, sleeptest), record in the bundle README
-   and TESTING; restore `/usr/ports/emulators/wine` (patches.orig →
-   patches, Makefile from `upstream/ports/emulators/wine/Makefile`).
-2. Package proton-wine p15 (`make clean=fake; make package`, pkg_add -u)
-   and rerun basic/gui/gsbench + ntdll units with the package.
+1. Done 2026-10-22: wine-11.19p4 (batches 1-3) tested, results in the
+   bundle README; `/usr/ports/emulators/wine` restored (installed package
+   is still the local 11.19p4). proton-wine p15 packaged, installed and
+   tested (no regression vs p13). VM disk: delete obsolete `pfx-*`.
+2. Optional: build batch 4 (%gs padding) for 11.19.
 3. Timed waits on objects still tick-rounded on the server path (fsync,
    on by default, covers most waits).
 4. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
