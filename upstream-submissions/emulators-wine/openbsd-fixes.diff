@@ -924,6 +924,18 @@ diff -ruN -x '*.orig' wine1119-base/dlls/ntdll/unix/virtual.c wine1119-chg/dlls/
  
      return STATUS_SUCCESS;
  }
+diff -ruN -x '*.orig' wine1119-base/dlls/winex11.drv/keyboard.c wine1119-chg/dlls/winex11.drv/keyboard.c
+--- a/dlls/winex11.drv/keyboard.c	2026-10-21 10:30:15.277701407 +0200
++++ b/dlls/winex11.drv/keyboard.c	2026-10-22 07:14:45.399210056 +0200
+@@ -2285,7 +2285,7 @@
+         TRACE( "Found group %u with name %s -> layout %s:%s, lang %04x, klid %08x\n", i, debugstr_a(names[i]),
+                debugstr_a(layout), debugstr_a(variant), lang, klid );
+ 
+-        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant );
++        snprintf( buffer, ARRAY_SIZE(buffer), "%s:%s", layout, variant ? variant : "" );
+         create_layout_from_xkb( i, buffer, lang, klid );
+ 
+         if (names[i]) XFree( names[i] );
 diff -ruN -x '*.orig' wine1119-base/dlls/ws2_32/unixlib.c wine1119-chg/dlls/ws2_32/unixlib.c
 --- a/dlls/ws2_32/unixlib.c	2026-10-02 23:15:08.000000000 +0200
 +++ b/dlls/ws2_32/unixlib.c	2026-10-21 18:29:42.555193756 +0200
