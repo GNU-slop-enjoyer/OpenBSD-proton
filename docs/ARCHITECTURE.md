@@ -44,7 +44,7 @@ shared state are requests to wineserver over a Unix socket and pipes.
 | signals to one thread of another process | no cross-process thread signals | server writes (signal, tid) into a shared array and sends SIGUSR2; a thread relays with thrkill(); the calling thread claims its own entries when a server call returns | ntdll/server `sig_openbsd.c` |
 | server access to client memory | ptrace only for descendants | client does the copy in a system APC: APC_COPY_MEMORY (NtRead/WriteVirtualMemory), APC_WRITE_MEMORY (PEB BeingDebugged) | ntdll `server.c`, server `ptrace.c`, `protocol.def` |
 | fast synchronization (fsync) | futex(2) but no futex_waitv | single-object waits FUTEX_WAIT; multi-object waiters register in a table in the fsync shm and sleep on their own word | `include/wine/fsync_openbsd.h`, ntdll/server `fsync.c` |
-| timers | 100 Hz clock, sleeps end on a tick | after timeBeginPeriod(<10 ms) or WINE_PRECISE_SLEEP=1, sleep whole ticks and yield the rest | ntdll `sync.c`, kernel32 `sync.c` |
+| timers | 100 Hz clock, sleeps end on a tick | after timeBeginPeriod(<10 ms) or WINE_PRECISE_SLEEP=1, sleep whole ticks and yield the rest; server-path timed waits poll the objects for the last two ticks | ntdll `sync.c`, kernel32 `sync.c` |
 | reparse points | no extended attributes | data as the content of the renamed `name?` file, or `.wine-reparse` inside a directory | ntdll `file.c`, server `fd.c` |
 | process and CPU information | no /proc | sysctl(2) KERN_PROC, KERN_CPUSTATS | ntdll `process.c`, `system.c`, server `process.c` |
 | change notifications | no inotify | libinotify (kqueue); server falls back to the name it opened a directory with | server `change.c` |

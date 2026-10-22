@@ -55,8 +55,9 @@ blockers, next action.
    is still the local 11.19p4). proton-wine p15 packaged, installed and
    tested (no regression vs p13). VM disk: delete obsolete `pfx-*`.
 2. Optional: build batch 4 (%gs padding) for 11.19.
-3. Timed waits on objects still tick-rounded on the server path (fsync,
-   on by default, covers most waits).
+3. Done (p16, work tree 8b1c813, built in the build tree, not packaged):
+   server-path timed waits precise in precise-sleep mode
+   (WaitForSingleObject(ev, 1) 20 -> 1.00 ms with WINEFSYNC=0).
 4. Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path;
    dual-stack sockets (OpenBSD has no IPv4-mapped IPv6); DOS hidden/system
    attributes (no xattrs, no UF_HIDDEN on OpenBSD); winetest runner

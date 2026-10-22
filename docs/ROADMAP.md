@@ -43,8 +43,11 @@ Ordered by what unblocks the next stage. See PROGRESS.md for current status.
       for single-object waits, kqueue/pipes for multi-object waits), behind an opt-in
       environment variable until it passes the sync winetests. In-process locks
       (SRW/condition variables/WaitOnAddress, kqueue EVFILT_USER) are already 6 µs vs 4 µs.
-- [x] Precise Sleep() for programs that ask for it (timeBeginPeriod) — p10
-- [ ] Directory reparse points (symlinks/junctions to directories) without xattrs
+- [x] Precise Sleep() for programs that ask for it (timeBeginPeriod) — p10; precise timed
+      waits on the server path (no fsync) — p16
+- [x] Directory reparse points (symlinks/junctions to directories) without xattrs — p14
+- [x] Short (<5 byte) %gs instructions without a fault per execution when int3 padding is
+      in rel8 reach — p15
 - [ ] Rare silent SIGABRT (likely pinsyscalls) in the %gs fault path
 - [ ] Sending the emulators/wine-11.19 bundle upstream (needs the owner's OK)
 

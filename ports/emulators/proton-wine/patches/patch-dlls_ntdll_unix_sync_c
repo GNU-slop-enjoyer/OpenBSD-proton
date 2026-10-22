@@ -5,6 +5,10 @@ Precise sleeps: OpenBSD's clock ticks at 100 Hz (Sleep(1) took 20 ms).  When
 the process asked for a fine timer resolution (NtSetTimerResolution, via
 timeBeginPeriod) or WINE_PRECISE_SLEEP=1 is set, NtDelayExecution sleeps in
 the kernel only while more than two ticks remain and yields for the rest.
+Timed waits that go to the server (no fsync, or objects fsync does not
+handle) end on a tick too; in the same mode NtWaitForSingleObject,
+NtWaitForMultipleObjects and alertable NtDelayExecution wait in the server
+while more than two ticks remain and then poll the objects every 100 us.
 
 Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
 arguments in this file; see patch-include_wine_unixlib_h.
@@ -73,7 +77,60 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "(%p,%p,%p,%p,%08x,0x%08x,%p)\n", handle, when, callback, arg, resume, period, state );
  
      SERVER_START_REQ( set_timer )
-@@ -2339,6 +2353,8 @@ NTSTATUS WINAPI NtWaitForMultipleObjects
+@@ -2329,6 +2343,52 @@ NTSTATUS WINAPI NtQueryTimer( HANDLE han
+ }
+ 
+ 
++#ifdef __OpenBSD__
++/* Server timeouts end on a clock tick (100 Hz), so a 1 ms wait takes 20 ms.
++ * In precise sleep mode (see use_precise_sleep) wait in the server only
++ * while more than two ticks remain, then poll the objects every 100 us and
++ * yield the CPU in between.  Only for waits that can be repeated (not
++ * signal-and-wait). */
++static unsigned int precise_server_wait( const union select_op *select_op, data_size_t size,
++                                         UINT flags, const LARGE_INTEGER *timeout )
++{
++    LARGE_INTEGER now, wait;
++    timeout_t when, next;
++    unsigned int ret;
++
++    if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE || !timeout->QuadPart || !use_precise_sleep())
++        return server_wait( select_op, size, flags, timeout );
++
++    if ((when = timeout->QuadPart) < 0)
++    {
++        NtQuerySystemTime( &now );
++        when = now.QuadPart - when;
++    }
++    for (;;)
++    {
++        NtQuerySystemTime( &now );
++        if (when - now.QuadPart > 2 * TICKSPERSEC / 100)
++        {
++            wait.QuadPart = -(when - now.QuadPart - 2 * TICKSPERSEC / 100);
++            if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++            continue;
++        }
++        wait.QuadPart = 0;
++        if ((ret = server_wait( select_op, size, flags, &wait )) != STATUS_TIMEOUT) return ret;
++        next = now.QuadPart + TICKSPERSEC / 10000;
++        for (;;)
++        {
++            NtQuerySystemTime( &now );
++            if (now.QuadPart >= when) return STATUS_TIMEOUT;
++            if (now.QuadPart >= next) break;
++            sched_yield();
++        }
++    }
++}
++#else
++#define precise_server_wait server_wait
++#endif
++
+ /******************************************************************
+  *		NtWaitForMultipleObjects (NTDLL.@)
+  */
+@@ -2339,6 +2399,8 @@ NTSTATUS WINAPI NtWaitForMultipleObjects
      UINT i, flags = SELECT_INTERRUPTIBLE;
      unsigned int ret;
  
@@ -82,7 +139,16 @@ Index: dlls/ntdll/unix/sync.c
      if (!count || count > MAXIMUM_WAIT_OBJECTS) return STATUS_INVALID_PARAMETER_1;
      if (type != WaitAll && type != WaitAny) FIXME( "Unsupported wait type %u\n", type );
  
-@@ -2379,6 +2395,8 @@ NTSTATUS WINAPI NtWaitForSingleObject( H
+@@ -2364,7 +2426,7 @@ NTSTATUS WINAPI NtWaitForMultipleObjects
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = type == WaitAll ? SELECT_WAIT_ALL : SELECT_WAIT;
+     for (i = 0; i < count; i++) select_op.wait.handles[i] = wine_server_obj_handle( handles[i] );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[count] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2379,6 +2441,8 @@ NTSTATUS WINAPI NtWaitForSingleObject( H
      UINT flags = SELECT_INTERRUPTIBLE;
      unsigned int ret;
  
@@ -91,7 +157,16 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "handle %p, alertable %u, timeout %s\n", handle, alertable, debugstr_timeout(timeout) );
  
      if ((ret = inproc_wait( 1, &handle, WaitAny, alertable, timeout )) != STATUS_NOT_IMPLEMENTED)
-@@ -2406,6 +2424,8 @@ NTSTATUS WINAPI NtSignalAndWaitForSingle
+@@ -2390,7 +2454,7 @@ NTSTATUS WINAPI NtWaitForSingleObject( H
+     if (alertable) flags |= SELECT_ALERTABLE;
+     select_op.wait.op = SELECT_WAIT;
+     select_op.wait.handles[0] = wine_server_obj_handle( handle );
+-    ret = server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
++    ret = precise_server_wait( &select_op, offsetof( union select_op, wait.handles[1] ), flags, timeout );
+     TRACE( "-> %#x\n", ret );
+     return ret;
+ }
+@@ -2406,6 +2470,8 @@ NTSTATUS WINAPI NtSignalAndWaitForSingle
      UINT flags = SELECT_INTERRUPTIBLE;
      NTSTATUS ret;
  
@@ -100,7 +175,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "signal %p, wait %p, alertable %u, timeout %s\n", signal, wait, alertable, debugstr_timeout(timeout) );
  
      if (!signal) return STATUS_INVALID_HANDLE;
-@@ -2448,10 +2468,35 @@ NTSTATUS WINAPI NtYieldExecution(void)
+@@ -2448,10 +2514,35 @@ NTSTATUS WINAPI NtYieldExecution(void)
  /******************************************************************
   *		NtDelayExecution (NTDLL.@)
   */
@@ -136,7 +211,16 @@ Index: dlls/ntdll/unix/sync.c
      /* if alertable, we need to query the server */
      if (alertable)
      {
-@@ -2494,6 +2539,17 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
+@@ -2463,7 +2554,7 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
+         }
+         /* Since server_wait will result in an unconditional implicit yield,
+            we never return STATUS_NO_YIELD_PERFORMED */
+-        if ((status = server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
++        if ((status = precise_server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout )) == STATUS_TIMEOUT)
+             status = STATUS_SUCCESS;
+         return status;
+     }
+@@ -2494,6 +2585,17 @@ NTSTATUS WINAPI NtDelayExecution( BOOLEA
              NtQuerySystemTime( &now );
              diff = (when - now.QuadPart + 9) / 10;
              if (diff <= 0) break;
@@ -154,7 +238,7 @@ Index: dlls/ntdll/unix/sync.c
              tv.tv_sec  = diff / 1000000;
              tv.tv_usec = diff % 1000000;
              if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
-@@ -2588,6 +2644,8 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
+@@ -2588,6 +2690,8 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
  {
      static BOOL has_request = FALSE;
  
@@ -163,7 +247,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "(%u,%u,%p), semi-stub!\n", res, set, current_res );
  
      /* Wine has no support for anything other that 1 ms and does not keep of
-@@ -2604,6 +2662,9 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
+@@ -2604,6 +2708,9 @@ NTSTATUS WINAPI NtSetTimerResolution( UL
      if (!has_request && !set)
          return STATUS_TIMER_RESOLUTION_NOT_SET;
      has_request = set;
@@ -173,7 +257,7 @@ Index: dlls/ntdll/unix/sync.c
  
      return STATUS_SUCCESS;
  }
-@@ -2716,6 +2777,8 @@ NTSTATUS WINAPI NtWaitForKeyedEvent( HAN
+@@ -2716,6 +2823,8 @@ NTSTATUS WINAPI NtWaitForKeyedEvent( HAN
      union select_op select_op;
      UINT flags = SELECT_INTERRUPTIBLE;
  
@@ -182,7 +266,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
  
      if (!handle) handle = keyed_event;
-@@ -2737,6 +2800,8 @@ NTSTATUS WINAPI NtReleaseKeyedEvent( HAN
+@@ -2737,6 +2846,8 @@ NTSTATUS WINAPI NtReleaseKeyedEvent( HAN
      union select_op select_op;
      UINT flags = SELECT_INTERRUPTIBLE;
  
@@ -191,7 +275,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "handle %p, key %p, alertable %u, timeout %s\n", handle, key, alertable, debugstr_timeout(timeout) );
  
      if (!handle) handle = keyed_event;
-@@ -2919,6 +2984,8 @@ NTSTATUS WINAPI NtRemoveIoCompletionEx(
+@@ -2919,6 +3030,8 @@ NTSTATUS WINAPI NtRemoveIoCompletionEx(
      unsigned int status;
      ULONG i = 0;
  
@@ -200,7 +284,7 @@ Index: dlls/ntdll/unix/sync.c
      TRACE( "%p %p %u %p %p %u\n", handle, info, count, written, timeout, alertable );
  
      if (!count) return STATUS_INVALID_PARAMETER;
-@@ -3165,6 +3232,8 @@ NTSTATUS WINAPI NtListenPort( HANDLE han
+@@ -3165,6 +3278,8 @@ NTSTATUS WINAPI NtListenPort( HANDLE han
  NTSTATUS WINAPI NtAcceptConnectPort( HANDLE *handle, ULONG id, LPC_MESSAGE *msg, BOOLEAN accept,
                                       LPC_SECTION_WRITE *write, LPC_SECTION_READ *read )
  {
@@ -209,7 +293,7 @@ Index: dlls/ntdll/unix/sync.c
      FIXME("(%p,%u,%p,%d,%p,%p),stub!\n", handle, id, msg, accept, write, read );
      return STATUS_NOT_IMPLEMENTED;
  }
-@@ -3748,6 +3817,8 @@ NTSTATUS WINAPI NtCreateTransaction( HAN
+@@ -3748,6 +3863,8 @@ NTSTATUS WINAPI NtCreateTransaction( HAN
   */
  NTSTATUS WINAPI NtCommitTransaction( HANDLE transaction, BOOLEAN wait )
  {
@@ -218,7 +302,7 @@ Index: dlls/ntdll/unix/sync.c
      FIXME( "%p, %d stub.\n", transaction, wait );
  
      return STATUS_SUCCESS;
-@@ -3758,6 +3829,8 @@ NTSTATUS WINAPI NtCommitTransaction( HAN
+@@ -3758,6 +3875,8 @@ NTSTATUS WINAPI NtCommitTransaction( HAN
   */
  NTSTATUS WINAPI NtRollbackTransaction( HANDLE transaction, BOOLEAN wait )
  {
