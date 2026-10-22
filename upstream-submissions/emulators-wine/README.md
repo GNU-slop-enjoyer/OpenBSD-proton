@@ -64,6 +64,9 @@ relayed signals for the calling thread are delivered when its server call
 returns (system APCs queued during the call ran late through the SIGUSR2
 relay), and precise Sleep() for processes that call timeBeginPeriod(<10)
 or set WINE_PRECISE_SLEEP=1 (the 100 Hz clock made Sleep(1) take 20 ms).
+Directory reparse points (symlinks/junctions to directories) and any
+reparse tag; in proton-wine kernel32_test file went from a crash to 0
+failures and ntdll_test file from 124 to 27 failures.
 
 Status:
 - First batch: wine-11.19p2 built and tested in the VM (2026-10-21):

@@ -186,7 +186,7 @@ detects 32-bit PE files and says so. Workarounds: the program's `.msi`
 |---|---|
 | wineserver needs a path to add an inotify watch; `get_path_from_fd()` only knew `/proc/self/fd` and `F_GETPATH`, neither exists on OpenBSD, so no watch was ever added (ReadDirectoryChangesW / FindFirstChangeNotification never fired) | fall back to the name the server opened the directory with (`get_fd_unix_name()`); kernel32 change 82 → 9 failures. Applies to emulators/wine too |
 | non-ASCII Windows file names are unrepresentable in the C locale (US-ASCII), the default on OpenBSD | proton-openbsd sets `LC_CTYPE=C.UTF-8` if the locale is not UTF-8 |
-| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) are only partly emulated without extended attributes | known limitation (~100 ntdll file test failures) |
+| reparse points (FSCTL_SET/GET_REPARSE_POINT; Windows symlinks/junctions) without extended attributes: the port stored data only for files and only symlink tags | p14: directories keep their data in `.wine-reparse` inside them (hidden, removed with the directory), any tag; kernel32 file 0 failures, ntdll file 124 → 27 (DOS hidden/system attributes still need xattrs) |
 
 ## Signal-context safety (found by winetest, session 2)
 

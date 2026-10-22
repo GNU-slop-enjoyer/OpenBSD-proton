@@ -4,10 +4,27 @@ Wine's '?' suffix, matching server/fd.c.
 Also: SYSCALL_NARROW_ARG() for the narrow (BOOLEAN/WORD) syscall
 arguments in this file; see patch-include_wine_unixlib_h.
 
+Directory reparse points: the data of a directory reparse point is kept
+in .wine-reparse inside it (no extended attributes); read for "dir?/"
+paths too, hidden from listings.
+
 Index: dlls/ntdll/unix/file.c
 --- dlls/ntdll/unix/file.c.orig
 +++ dlls/ntdll/unix/file.c
-@@ -811,7 +811,7 @@ static char *parse_mount_entries( FILE *
+@@ -183,6 +183,12 @@ typedef struct
+ #define XATTR_ATTRIBS_MASK      (FILE_ATTRIBUTE_HIDDEN|FILE_ATTRIBUTE_SYSTEM)
+ 
+ #define XATTR_REPARSE XATTR_USER_PREFIX "WINEREPARSE"
++#ifdef __OpenBSD__
++/* Without extended attributes the reparse data of a file is the content of
++ * the renamed "name?" file, and that of a directory (empty otherwise) is kept
++ * in this file inside it. */
++#define REPARSE_DIR_FILE ".wine-reparse"
++#endif
+ 
+ struct file_identity
+ {
+@@ -811,7 +817,7 @@ static char *parse_mount_entries( FILE *
  }
  #endif
  
@@ -16,7 +33,7 @@ Index: dlls/ntdll/unix/file.c
  #include <fstab.h>
  static char *parse_mount_entries( FILE *f, dev_t dev, ino_t ino )
  {
-@@ -916,7 +916,7 @@ static char *get_default_drive_device( c
+@@ -916,7 +922,7 @@ static char *get_default_drive_device( c
      if (device) ret = strdup( device );
      mutex_unlock( &mnt_mutex );
  
@@ -25,7 +42,17 @@ Index: dlls/ntdll/unix/file.c
      char *device = NULL;
      int fd, res = -1;
      struct stat st;
-@@ -1670,6 +1670,23 @@ static BOOL fd_is_mount_point( int fd, c
+@@ -1592,6 +1598,9 @@ static BOOL append_entry( struct dir_dat
+     WCHAR long_nameW[MAX_DIR_ENTRY_LEN + 1];
+     WCHAR short_nameW[13];
+ 
++#ifdef __OpenBSD__
++    if (!strcmp( long_name, REPARSE_DIR_FILE )) return TRUE;  /* data of a directory reparse point */
++#endif
+     long_len = ntdll_umbstowcs( long_name, strlen(long_name), long_nameW, ARRAY_SIZE(long_nameW) );
+     if (long_len == ARRAY_SIZE(long_nameW)) return TRUE;
+     if (long_nameW[long_len - 1] == '?') --long_len;
+@@ -1670,6 +1679,32 @@ static BOOL fd_is_mount_point( int fd, c
  
  static unsigned int server_get_unix_name( HANDLE handle, char **unix_name );
  
@@ -36,6 +63,15 @@ Index: dlls/ntdll/unix/file.c
 +    ssize_t ret;
 +
 +    if (fstat( fd, &st ) == -1) return -1;
++    if (S_ISDIR(st.st_mode))
++    {
++        int data_fd = openat( fd, REPARSE_DIR_FILE, O_RDONLY | O_CLOEXEC | O_NOFOLLOW );
++
++        if (data_fd == -1) return -1;
++        ret = read_symlink_reparse( data_fd, buffer, size );
++        close( data_fd );
++        return ret;
++    }
 +    if (!S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > size) goto invalid;
 +    do ret = pread( fd, buffer, size, 0 ); while (ret == -1 && errno == EINTR);
 +    if (ret == -1) return -1;
@@ -49,13 +85,18 @@ Index: dlls/ntdll/unix/file.c
  
  /* get the stat info and file attributes for a file (by file descriptor) */
  static int fd_get_file_info( HANDLE handle, int fd, unsigned int options,
-@@ -1694,7 +1711,23 @@ static int fd_get_file_info( HANDLE hand
+@@ -1694,7 +1729,28 @@ static int fd_get_file_info( HANDLE hand
          }
      }
  
 +#ifdef __OpenBSD__
 +    attr_len = -1;
-+    if (S_ISREG(st->st_mode) && st->st_size > 0 && st->st_size <= sizeof(buffer))
++    if (S_ISDIR(st->st_mode))
++    {
++        /* only the directory of a reparse point has the data file */
++        attr_len = read_symlink_reparse( fd, buffer, sizeof(buffer) );
++    }
++    else if (S_ISREG(st->st_mode) && st->st_size > 0 && st->st_size <= sizeof(buffer))
 +    {
 +        char *name;
 +        size_t len;
@@ -73,13 +114,14 @@ Index: dlls/ntdll/unix/file.c
      if (attr_len >= 0 && attr_len >= sizeof(ULONG))
      {
          *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
-@@ -1834,7 +1867,20 @@ static int get_file_info( const char *pa
+@@ -1834,7 +1890,21 @@ static int get_file_info( const char *pa
      }
      *attr |= get_file_attributes( st );
  
 +#ifdef __OpenBSD__
 +    attr_len = -1;
-+    if (len && path[len - 1] == '?' && S_ISREG(st->st_mode))
++    while (len > 1 && path[len - 1] == '/') len--;  /* "dir?/" */
++    if (len && path[len - 1] == '?' && (S_ISREG(st->st_mode) || S_ISDIR(st->st_mode)))
 +    {
 +        int fd = open( path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK );
 +        if (fd != -1)
@@ -94,7 +136,7 @@ Index: dlls/ntdll/unix/file.c
      if (attr_len >= 0 && attr_len >= sizeof(ULONG))
      {
          *attr |= FILE_ATTRIBUTE_REPARSE_POINT;
-@@ -2939,6 +2985,9 @@ NTSTATUS WINAPI NtQueryDirectoryFile( HA
+@@ -2939,6 +3009,9 @@ NTSTATUS WINAPI NtQueryDirectoryFile( HA
      struct dir_data *data;
      unsigned int status;
  
@@ -104,7 +146,7 @@ Index: dlls/ntdll/unix/file.c
      TRACE("(%p %p %p %p %p %p 0x%08x 0x%08x 0x%08x %s 0x%08x\n",
            handle, event, apc_routine, apc_context, io, buffer,
            length, info_class, single_entry, debugstr_us(mask),
-@@ -3978,6 +4027,7 @@ static NTSTATUS nt_to_unix_file_name_int
+@@ -3978,6 +4051,7 @@ static NTSTATUS nt_to_unix_file_name_int
      unix_len = name_len * 3 + MAX_DIR_ENTRY_LEN + 3;
      if (!(unix_name = malloc( unix_len ))) return STATUS_NO_MEMORY;
      unix_name[0] = '.';
@@ -112,7 +154,7 @@ Index: dlls/ntdll/unix/file.c
  
      if (!(status = server_get_unix_fd( attr->RootDirectory, 0, &root_fd, &needs_close, &type, NULL )))
      {
-@@ -4348,10 +4398,17 @@ static NTSTATUS resolve_reparse_point( i
+@@ -4348,10 +4422,17 @@ static NTSTATUS resolve_reparse_point( i
  
      if (!(data = malloc( MAXIMUM_REPARSE_DATA_BUFFER_SIZE ))) return STATUS_NO_MEMORY;
  
@@ -130,7 +172,7 @@ Index: dlls/ntdll/unix/file.c
          return errno_to_status( errno );
      }
  
-@@ -7463,6 +7520,9 @@ NTSTATUS WINAPI NtLockFile( HANDLE file,
+@@ -7463,6 +7544,9 @@ NTSTATUS WINAPI NtLockFile( HANDLE file,
      HANDLE handle;
      BOOLEAN async;
  
@@ -140,7 +182,7 @@ Index: dlls/ntdll/unix/file.c
      if (apc || io_status || key)
      {
          FIXME("Unimplemented yet parameter\n");
-@@ -7634,6 +7694,8 @@ NTSTATUS WINAPI NtNotifyChangeDirectoryF
+@@ -7634,6 +7718,8 @@ NTSTATUS WINAPI NtNotifyChangeDirectoryF
      unsigned int status;
      ULONG size = max( 4096, buffer_size );
  
@@ -149,7 +191,7 @@ Index: dlls/ntdll/unix/file.c
      TRACE( "%p %p %p %p %p %p %u %u %d\n",
             handle, event, apc, apc_context, iosb, buffer, buffer_size, filter, subtree );
  
-@@ -8148,6 +8210,9 @@ NTSTATUS WINAPI NtQueryEaFile( HANDLE ha
+@@ -8148,6 +8234,9 @@ NTSTATUS WINAPI NtQueryEaFile( HANDLE ha
      int fd, needs_close;
      NTSTATUS status;
  
