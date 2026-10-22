@@ -16,7 +16,8 @@ exactly what has been run and with which result; nothing below claims more.
   (`ports/emulators/proton-wine`, 70+ patches).
 - 64-bit console and GUI programs, .NET programs (Wine Mono), the HTML
   engine (Wine Gecko); 7-Zip, Notepad++; the games OpenTTD and SuperTuxKart
-  (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound).
+  (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound) and GZDoom
+  with its Vulkan renderer (on lavapipe).
 - Direct3D 9/10/11 through wine's wined3d (OpenGL): the D3D11 conformance
   tests pass. DXVK renders Direct3D 11 and vkd3d-proton renders Direct3D 12 on
   Mesa's software Vulkan (lavapipe, built for testing), in windows with
