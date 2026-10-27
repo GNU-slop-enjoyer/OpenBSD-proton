@@ -160,8 +160,8 @@ check_system() {
 	WXFREE=${2:-0}
 	if [ -z "$WXDIR" ]; then
 		fail "no filesystem is mounted wxallowed (needed by wine); see mount(8) and fstab(5)"
-	elif [ "$WXFREE" -lt $((25 * 1024 * 1024)) ]; then
-		fail "$WXDIR (wxallowed) has only $((WXFREE / 1024 / 1024)) GB free; the build needs about 25 GB"
+	elif [ "$WXFREE" -lt $((15 * 1024 * 1024)) ]; then
+		fail "$WXDIR (wxallowed) has only $((WXFREE / 1024 / 1024)) GB free; the build and the packages need about 15 GB"
 	else
 		ok "build area on $WXDIR ($((WXFREE / 1024 / 1024)) GB free, wxallowed)"
 	fi

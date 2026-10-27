@@ -29,7 +29,7 @@ On the OpenBSD machine, as your normal user (not root):
 
 1. checks the system and stops with an explanation if something is
    missing: OpenBSD 8.0/amd64, doas set up, a `wxallowed` filesystem with
-   about 25 GB free for the build, `/usr/local` `wxallowed`, the memory
+   about 15 GB free for the build, `/usr/local` `wxallowed`, the memory
    limit of your login class, sndiod, X, the GPU driver (amdgpu → radv,
    inteldrm → anv);
 2. if your login class allows less than 8 GB per process, adds a login
