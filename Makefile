@@ -3,7 +3,8 @@
 # (privileged steps go through doas and are shown first).
 # See docs/USING.md and scripts/openbsd-proton-setup.
 
-SETUP =	./scripts/openbsd-proton-setup
+# SETUP_FLAGS=-y answers yes to the root steps; see the script's usage.
+SETUP =	./scripts/openbsd-proton-setup ${SETUP_FLAGS}
 
 all install:
 	@${SETUP} install
