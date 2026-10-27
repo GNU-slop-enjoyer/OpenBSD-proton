@@ -9,6 +9,9 @@ command and log. "Not tested" means exactly that.
 |---|---|---|
 | host | Gentoo Linux x86_64, kernel 6.18.48, 8 CPUs, 7.6 GB RAM | QEMU 10.2.3 + KVM, LLVM 22 |
 | obsd-vm | OpenBSD 8.0 GENERIC.MP#84 amd64 under QEMU/KVM on host | 6 vCPU, 4 GB, virtio disk/net, no GPU; created by `scripts/vm/install.py` |
+| host2 | Gentoo Linux x86_64, kernel 7.3.0, 32 CPUs, 30 GB RAM (from 2026-10-27) | QEMU 10.2.3 + KVM, LLVM 22, OpenSSL 3.5.9; the old host's VM image and wine work tree were not moved, everything was rebuilt from the repository |
+| obsd-vm2 | OpenBSD 8.0 GENERIC.MP#84 amd64 on host2 (`vm/openbsd.qcow2`, new install) | 16 vCPU, 12 GB, 200 GB disk (/home 127 GB, /usr/local 19 GB), no GPU; `MAKE_JOBS=8` |
+| obsd-fresh | copy of obsd-vm2's `fresh-install` snapshot (`vm/fresh-test.qcow2`, snapshot `clean`) | a clean 8.0 install as the installer leaves it: user in class staff, no doas.conf, no /usr/ports, /home not wxallowed; for testing `openbsd-proton-setup` |
 
 ## Results
 
@@ -129,6 +132,16 @@ command and log. "Not tested" means exactly that.
 | 2026-10-22 | — | Dual-stack TCP clients (work tree eaef3f5, build tree): `tests/pe/dualstack.c` **17/17** (IPV6_V6ONLY off and read back 0, blocking and non-blocking connect to an IPv4 listener via ::ffff:127.0.0.1, IPv4-mapped getpeername/getsockname, data both ways; dual-stack UDP still WSAEINVAL as documented). ws2_32 sock 203 → 190 failures, protocol 1 (same), afd 2–3 (flaky lines 2719/2787 vary between runs) | obsd-vm (build tree) | **pass** | session transcript |
 | 2026-10-22 | 5 | Silent SIGABRT re-test: `kernel32_test console` 40 runs with the p16 package under `script(1)` (a pseudo-terminal, so a kernel pinsyscalls `uprintf` would be visible): **0 aborts** (rc 0 or 1 = a normal test failure; one timeout). Together with 15 clean runs under ktrace, the abort seen twice with p5–p8 is not reproducible since the %fs (p9), signal-relay (p11) and %gs (p15) changes | obsd-vm | not reproducible | `/tmp/abrt-tty.txt` in the VM |
 | 2026-10-22 | 5 | proton-wine p18 package installed: basic 6/6, gui 5/5, dualstack 17/17 | obsd-vm | **pass** | session transcript |
+| 2026-10-27 | infra | 8.0 sets + `cd80.iso` + `src.tar.gz`/`sys.tar.gz` fetched again, signify-verified (`build/venv` Python with `cryptography`) | host2 | **pass** (13 files OK) | terminal |
+| 2026-10-27 | infra | Unattended install with `--disk-size 200G`, provisioning (no upstream/ports on this host) | obsd-vm2 | **pass** | `logs/install-run.log`, `logs/provision.log` |
+| 2026-10-27 | 2/3 | All seven ports rebuilt from the repository: mingw-w64, dxvk, vkd3d-proton, proton-wine (~1 h at MAKE_JOBS=8), addons, fonts, proton-openbsd | obsd-vm2 | **pass** after one fix: a fresh proton-wine tree failed in configure (`makedep`: `wine/fsync_openbsd.h: No such file`), fixed by `patch-include_Makefile_in`; the header is not installed, PLIST unchanged. The ports framework could not install a dependency it had built itself (unsigned `dwz` via doas) — installing the release's `libgcrypt` package instead | `~builder/build-logs/*.log` |
+| 2026-10-28 | 6/7 | Freshly built packages: `basic.exe` 6/6 (fsync on), `gui.exe` 5/5 under Xvfb + cwm, both compiled with the mingw-w64 package (`-nostartfiles -Wl,-e,mainCRTStartup`) | obsd-vm2 | **pass** | terminal |
+| 2026-10-28 | 11 | `proton-launcher -a info/install 1007`: anonymous CM logon over WebSocket, PICS, depot key, manifest code, manifest + 8-thread chunk download (64.7 MB, LZMA chunks, SHA-1 checked), on host2 (OpenSSL 3) and obsd-vm2 (LibreSSL) | host2, obsd-vm2 | **pass**; identical SHA-1 of steamclient64.dll on both (`1b7b7ba1…`); 28 MB/s on host2, 23 MB/s in the VM | terminal |
+| 2026-10-28 | 11 | `Authentication.GetPasswordRSAPublicKey` as a non-authenticated service call | host2 | **pass** after a fix (the header's SteamID must be 0 before logon; with the anonymous ID Steam logged the session off) | terminal |
+| 2026-10-28 | 11 | `proton-launcher -a install 896660` (Valheim dedicated server, Windows depot 896662 + Steamworks SDK Redist depot 1004): 1014 files, 1.95 GB in 2 min 20 s; second run: 1949.5 MB "already present" (every chunk re-hashed), nothing downloaded; `uninstall` deleted it | obsd-vm2 | **pass** (download, verify, resume, uninstall). The server was **not run**: it is a proprietary binary outside the approved categories | terminal |
+| 2026-10-28 | 11 | `proton-launcher add/list/run` with own games (`gui.exe` 5/5, `basic.exe` 6/6 through `proton-launcher run`, one prefix per game in `prefixes/`); menu shows games and quits on `q` | obsd-vm2 | **pass** | terminal |
+| 2026-10-28 | 11 | Steam account login (Steam Guard), `library`, downloading an owned game, running a Steam game | — | **not tested** — needs the user's account; left for the user | |
+| 2026-10-28 | 3/4 | `games/proton-launcher` port from the checkout (`PORTSDIR_PATH=/usr/ports:…/ports`): fake, package, `port-lib-depends-check` clean, `mandoc -Tlint` only style notes | obsd-vm2 | **pass** | terminal |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio on real hardware (sndio sink), game controllers, Proton game, Steam | — | not tested | |
 

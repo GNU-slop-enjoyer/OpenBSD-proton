@@ -3,6 +3,52 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
+## 2026-10-27/28 — Session 4: new host, Steam (proton-launcher), one-command install
+
+### Context
+New host (host2, 32 CPUs, 30 GB). The old VM image and `work/proton-port/wine`
+were not copied, so everything was rebuilt from the repository; the user
+asked for: `git clone` + `make` on OpenBSD, a full Steam login and a
+launcher, own games, **no proprietary software** (so not Valve's client),
+host RAM under 25 GB, and gave permission to merge to main.
+
+### What changed
+- `launcher/` (new, C): **proton-launcher** — Steam CM client over
+  WebSocket/TLS, Steam Guard login (email/app code or app approval), token
+  saved 0600, licenses, PICS, depot keys, manifests, parallel verified
+  chunk downloads with resume, own games, `run` through proton-openbsd with
+  a prefix per game, interactive menu; man page. Port `games/proton-launcher`.
+- `scripts/openbsd-proton-setup` + top-level `Makefile`: checks, ports tree,
+  release packages, builds all eight ports in order from the checkout
+  (`PORTSDIR_PATH`), installs each, runs tests. `make`, `make dry-run`,
+  `make check`, `make update`, `make uninstall`.
+- proton-wine: `patch-include_Makefile_in` — a fresh tree could not be
+  configured (makedep did not find `wine/fsync_openbsd.h`); the old
+  session's build tree predated the header. No package change.
+- proton-openbsd 0.1p8: raises the soft datasize/openfiles limits to the
+  login class maximum (staff: 1.5 GB soft, unlimited hard).
+- Scripts: `fetch-openbsd-sets.sh` also fetches `cd80.iso`; `provision.sh`
+  works without `upstream/ports`; `vm/run.sh` takes `VM_DISK` for a second
+  (clean) VM.
+- Docs: USING (install + Steam), TESTING (machines, results), DECISIONS
+  D10 (no Valve client) and D11 (install from the checkout).
+
+### Results
+See TESTING.md 2026-10-27/28. All ports build from a clean tree; basic
+6/6 and gui 5/5 on the new packages; anonymous Steam downloads verified on
+Linux and OpenBSD; own games run through the launcher.
+
+### Not tested / open
+- **Steam account login, library and a Steam game**: needs the user's
+  account (`proton-launcher login`). If it fails, run with `-v` and look at
+  the eresult; the message layouts are in `launcher/steam.c`.
+- Games that need the Steam client (Steamworks) quit; documented.
+- Real GPU (RX 9070 on this PC): the user tests last. OpenBSD 8.0 ships
+  radv; whether amdgpu attaches to RDNA4 is unknown.
+- Not redone on this host: the winetest run, lavapipe/DXVK rendering
+  (no lavapipe built here), the wine 11.0 heap-corruption build (§9.1 of
+  HANDOFF.md). These are unchanged from session 3.
+
 ## 2026-10-21/22 — Session 3: Linux reference, OpenBSD-only fixes, fsync, timers
 
 ### What changed (proton-wine p6 → p12, launcher 0.1p5 → 0.1p7)

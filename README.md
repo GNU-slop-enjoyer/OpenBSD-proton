@@ -9,6 +9,27 @@ This is a work in progress developed and tested in an OpenBSD 8.0 amd64
 virtual machine without a GPU. Read [docs/TESTING.md](docs/TESTING.md) for
 exactly what has been run and with which result; nothing below claims more.
 
+## Install
+
+On OpenBSD 8.0 amd64, as your normal user:
+
+    doas pkg_add git
+    git clone https://github.com/GNU-slop-enjoyer/OpenBSD-proton
+    cd OpenBSD-proton
+    make
+
+`make` checks the system, builds the ports below on your machine and
+installs them; root steps go through doas and are shown first. The first
+build takes one to two hours. Details: [docs/USING.md](docs/USING.md).
+
+Then:
+
+    proton-launcher login              # Steam, with Steam Guard
+    proton-launcher library            # your Windows games
+    proton-launcher install APPID
+    proton-launcher add Mygame ~/games/mygame/Mygame.exe
+    proton-launcher                    # menu
+
 ## What works (tested in the VM)
 
 - Proton's wine 11.0 (`ValveSoftware/wine` e60892cc) built natively on
@@ -18,6 +39,10 @@ exactly what has been run and with which result; nothing below claims more.
   engine (Wine Gecko); 7-Zip, Notepad++; the games OpenTTD and SuperTuxKart
   (OpenGL on Mesa llvmpipe, keyboard/mouse, PulseAudio sound) and GZDoom
   with its Vulkan renderer (on lavapipe).
+- `proton-launcher`: anonymous Steam logon, app info and verified,
+  resumable downloads from Steam's content servers (tested with free tools
+  and a dedicated server); own games through the launcher. Logging in with
+  an account is implemented but not yet tested.
 - Direct3D 9/10/11 through wine's wined3d (OpenGL): the D3D11 conformance
   tests pass. DXVK renders Direct3D 11 and vkd3d-proton renders Direct3D 12 on
   Mesa's software Vulkan (lavapipe, built for testing), in windows with
@@ -34,7 +59,9 @@ exactly what has been run and with which result; nothing below claims more.
 - 32-bit Windows programs (OpenBSD gives user processes no 32-bit code
   segment). Many installers of 64-bit programs are 32-bit; use an `.msi` or
   a portable archive.
-- Steam, Steam's runtime, anti-cheat, VR, NVIDIA-specific libraries.
+- Valve's Steam client and runtime (not used: `proton-launcher` talks to
+  Steam's servers itself). Games that need a running Steam client
+  (Steamworks) quit at start. Anti-cheat, VR, NVIDIA-specific libraries.
 - Dual-stack (IPv4-mapped IPv6) sockets, DOS hidden/system file attributes
   (no extended attributes on OpenBSD), some socket options.
 
@@ -49,6 +76,7 @@ exactly what has been run and with which result; nothing below claims more.
 | `ports/graphics/vkd3d-proton` | vkd3d-proton 3.0 (Proton's revision) |
 | `ports/devel/mingw-w64` | mingw-w64 toolchain (builds DXVK/vkd3d-proton) |
 | `ports/emulators/proton-openbsd` | the `proton-openbsd` launcher |
+| `ports/games/proton-launcher` | Steam login, downloads of owned games, own games, menu (`launcher/`) |
 
 Building and installing: [docs/BUILDING.md](docs/BUILDING.md).
 Using: [docs/USING.md](docs/USING.md) and `proton-openbsd(1)`.

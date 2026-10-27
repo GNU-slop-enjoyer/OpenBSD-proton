@@ -1,5 +1,16 @@
 # OpenBSD Proton — complete handoff (2026-10-22)
 
+> **Update 2026-10-28 (session 4):** the move to the new PC happened by
+> rebuilding, not copying: the repo lives in `~/src/OpenBSD-proton`, the VM
+> was reinstalled (`vm/openbsd.qcow2`, 16 vCPU/12 GB, and a clean copy
+> `vm/fresh-test.qcow2` for installer tests, `VM_DISK=… VM_SSH_PORT=2223`),
+> and `work/proton-port/wine` no longer exists — recreate it from Valve's
+> `e60892cc` plus `ports/emulators/proton-wine/patches` when wine needs
+> changing. Phase 2 became `proton-launcher` (no Valve client, by the
+> user's choice) and Phase 3 is `scripts/openbsd-proton-setup` (`make`).
+> State and next steps: `docs/PROGRESS.md`, first entry. Keep host RAM use
+> under 25 GB (user's request).
+
 This file is written for a new Claude Code session on a new machine that has
 **none of the previous conversation**. Read it top to bottom once, then
 `CLAUDE.md` (the standing mission and rules), then `docs/PROGRESS.md` (the
