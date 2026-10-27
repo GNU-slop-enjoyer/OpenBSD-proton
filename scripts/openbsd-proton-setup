@@ -33,7 +33,7 @@ OUR_PKGS="proton-launcher proton-openbsd proton-fonts proton-wine-addons
 
 # Release packages needed to build them (docs/DEPENDENCIES.md); the rest
 # of the dependencies come with these.
-BIN_DEPS="autoconf-2.73 automake-1.18.1 bison nasm gmake git llvm-22
+BIN_DEPS="autoconf-2.73 automake-1.18.1 bison nasm gmake git llvm%22
 	pulseaudio sdl2 ffmpeg vulkan-loader vulkan-headers
 	gstreamer1 gst-plugins-base gst-plugins-good gst-plugins-bad
 	gst-plugins-ugly gst-libav gettext-tools libinotify libgphoto
@@ -171,15 +171,22 @@ check_system() {
 		fail "/usr/local is not mounted wxallowed; wine cannot run. Add wxallowed to its line in /etc/fstab"
 	fi
 
+	# The installer puts users in the "staff" class: 1.5 GB soft limit,
+	# no hard limit.  Raising the soft limit is then enough (this script
+	# does it for the build, proton-openbsd for games); only a small hard
+	# limit needs another login class.
 	d=$(ulimit -H -d)
 	if [ "$d" = unlimited ] || [ "$d" -ge $((8 * 1024 * 1024)) ]; then
-		ok "memory limit (datasize) $d KB"
+		ulimit -S -d "$d"
+		ok "memory limit: raised to the class maximum ($d KB)"
 		NEED_CLASS=0
 	else
 		note "your login class allows only $((d / 1024)) MB of memory per process;
 	      building wine and running games needs more (see below)"
 		NEED_CLASS=1
 	fi
+	n=$(ulimit -H -n)
+	[ "$n" = unlimited ] || [ "$n" -lt 4096 ] || ulimit -S -n 4096
 
 	if pgrep -xq sndiod; then
 		ok "sndiod is running (sound)"
@@ -291,7 +298,7 @@ install_bin_deps() {
 	have=$(pkg_info -q | sed -E 's/-[0-9][^-]*(-[a-z0-9_]+)*$//' | sort -u)
 	missing=
 	for p in $BIN_DEPS; do
-		stem=$(echo "$p" | sed -E 's/--.*$//; s/-[0-9][0-9.]*$//')
+		stem=$(echo "$p" | sed -E 's/--.*$//; s/%.*$//; s/-[0-9][0-9.]*$//')
 		echo "$have" | grep -qxF "$stem" || missing="$missing $p"
 	done
 	if [ -z "$missing" ]; then
@@ -299,7 +306,7 @@ install_bin_deps() {
 		return 0
 	fi
 	priv "install the packages needed to build wine and DXVK:$missing" \
-	    pkg_add -I $missing
+	    pkg_add -I $missing || die "pkg_add failed; see the messages above"
 }
 
 # make(1) settings for building our ports out of this checkout.

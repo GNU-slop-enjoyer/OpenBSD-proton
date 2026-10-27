@@ -43,6 +43,12 @@ die() {
 [ $# -ge 1 ] || usage
 [ -x "$WINE" ] || die "$WINE not found (pkg_add proton-wine)"
 
+# Users of the default "staff" login class get 1.5 GB of data and 512
+# open files unless they raise the soft limits; games need more, wine's
+# server keeps a descriptor per object.  Raise both to the class maximum.
+ulimit -S -d "$(ulimit -H -d)" 2>/dev/null
+ulimit -S -n "$(ulimit -H -n)" 2>/dev/null
+
 # Windows file names are Unicode; wine maps them to Unix names in the
 # locale's codeset, and in the default C locale (US-ASCII) any non-ASCII
 # name is unrepresentable.  Use UTF-8 for LC_CTYPE unless it already is.
