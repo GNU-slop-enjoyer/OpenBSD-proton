@@ -42,9 +42,9 @@ REL=$("$RUN" ssh 'uname -r')
 	    -x SHA256.sig ports.tar.gz"
 root 'rm -rf /usr/ports && mkdir -p /usr/ports && chown builder /usr/ports'
 "$RUN" ssh 'tar -C /usr -xzf ~/dist/ports.tar.gz'
-tar -C "$TOP/upstream/ports" -cf - emulators/wine |
+[ ! -d "$TOP/upstream/ports/emulators/wine" ] || tar -C "$TOP/upstream/ports" -cf - emulators/wine |
 	"$RUN" ssh 'tar -C /usr/ports -xf -'
-tar -C "$TOP/ports" -cf - emulators |
+tar -C "$TOP/ports" -cf - devel emulators fonts graphics |
 	"$RUN" ssh 'tar -C /usr/ports -xf -'
 
 root 'mkdir -p /home/pobj /home/packages /home/distfiles /home/plist &&

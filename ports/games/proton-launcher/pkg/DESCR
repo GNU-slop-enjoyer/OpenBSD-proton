@@ -1,0 +1,7 @@
+proton-launcher logs in to a Steam account (with Steam Guard), lists the
+Windows games it owns, downloads them from Steam's content servers and
+starts them with proton-openbsd, each in its own wine prefix. It also
+keeps a list of your own games to start the same way.
+
+It talks to Steam's servers directly and does not use Valve's Steam
+client. Games that need a running Steam client (Steamworks) do not run.

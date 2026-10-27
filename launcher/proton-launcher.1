@@ -1,0 +1,160 @@
+.Dd $Mdocdate: October 28 2026 $
+.Dt PROTON-LAUNCHER 1
+.Os
+.Sh NAME
+.Nm proton-launcher
+.Nd download and start Windows games from Steam and your own games
+.Sh SYNOPSIS
+.Nm
+.Op Fl v
+.Op Ar command Op Ar arg ...
+.Sh DESCRIPTION
+.Nm
+logs in to a Steam account, lists the Windows games it owns, downloads
+them from Steam's content servers and starts them with
+.Xr proton-openbsd 1 .
+It also keeps a list of games that did not come from Steam.
+It does not use or install Valve's Steam client: it talks to Steam's
+servers directly, the way the open-source SteamKit2 library does.
+.Pp
+Without a command,
+.Nm
+shows a menu of installed games.
+The commands are:
+.Bl -tag -width Ds
+.It Cm login Op Ar account
+Log in.
+.Nm
+asks for the password and, if the account uses Steam Guard, for the
+code from the email or the mobile app; a login can also be approved in
+the mobile app.
+Steam answers with a login token, which is saved in
+.Pa login
+in the data directory, readable only by the user.
+The password is not saved.
+.It Cm logout
+Delete the saved login token.
+.It Cm library
+List the Windows games the account owns, with their app IDs.
+.It Cm info Ar appid
+Show a game's depots, which of them would be downloaded and why the others
+are not, and the program Steam starts.
+.It Cm install Ar appid
+Download a game, or bring it up to date.
+Only the Windows depots for 64-bit or any architecture, in English, that
+the account owns are downloaded.
+Files already present are checked chunk by chunk and kept when they are
+correct, so an interrupted download resumes where it stopped.
+Every chunk is verified with its SHA-1 hash.
+.It Cm uninstall Ar appid
+Delete a downloaded game.
+Its wine prefix is kept.
+.It Cm free Ar appid
+Ask Steam to add a free game to the account.
+.It Cm add Ar name Ar program.exe Op Ar arg ...
+Add one of your own games under
+.Ar name .
+.It Cm remove Ar name
+Remove a game added with
+.Cm add
+from the list.
+.It Cm list
+List the installed games.
+.It Cm run Ar appid | name Op Ar arg ...
+Start a game with
+.Ic proton-openbsd run ,
+in the game's own wine prefix
+.Pq Pa prefixes/ Ns Ar appid
+and working directory.
+.It Cm menu
+The interactive menu.
+.El
+.Pp
+The options are:
+.Bl -tag -width Ds
+.It Fl a
+.Cm ( info ,
+.Cm install )
+Log in anonymously instead, which gives access to Steam's freely
+downloadable tools and dedicated servers.
+.It Fl b Ar branch
+.Cm ( info ,
+.Cm install )
+Use another branch than
+.Dq public .
+Branches with a password are not supported.
+.It Fl j Ar threads
+.Cm ( install )
+Download with this many connections; the default is 8.
+.It Fl v
+Print debugging messages.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width Ds
+.It Ev PROTON_LAUNCHER_DIR
+The data directory.
+Defaults to
+.Pa ${XDG_DATA_HOME:-~/.local/share}/proton-launcher .
+.It Ev PROTON_PREFIX
+If set, used as the wine prefix for every game.
+.El
+.Pp
+.Xr proton-openbsd 1
+reads its own variables, such as
+.Ev PROTON_USE_WINED3D
+and
+.Ev PROTON_LOG .
+.Sh FILES
+In the data directory:
+.Bl -tag -width Ds
+.It Pa login
+The account name and Steam's login token.
+.It Pa settings
+Optional settings, one
+.Dq key value
+pair per line:
+.Cm library_dir Ar dir
+(where games are downloaded, default
+.Pa steamapps/common ) ,
+.Cm shared_prefix yes
+(one wine prefix for all games),
+.Cm proton Ar program
+(instead of
+.Xr proton-openbsd 1 ) .
+.It Pa steamapps/ Ns Ar appid Ns Pa .info
+What
+.Cm install
+recorded about a game: name, directory, program, arguments and working
+directory.
+It can be edited to start another program.
+.It Pa games/ Ns Ar name
+A game added with
+.Cm add .
+.It Pa prefixes/
+The wine prefixes.
+.El
+.Sh EXAMPLES
+.Bd -literal -offset indent
+$ proton-launcher login
+$ proton-launcher library
+$ proton-launcher install 1234560
+$ proton-launcher run 1234560
+$ proton-launcher add Mygame ~/games/mygame/mygame.exe -windowed
+$ proton-launcher run Mygame
+.Ed
+.Sh SEE ALSO
+.Xr proton-openbsd 1
+.Sh CAVEATS
+Many games call the Steamworks API
+.Pq Pa steam_api64.dll
+at start and expect a running Steam client, which
+.Nm
+is not; such games usually exit at once or show an error.
+Games without Steam DRM or Steamworks requirements run.
+Anti-cheat systems are not supported.
+.Pp
+Only 64-bit Windows programs run on
+.Ox .
+.Pp
+Downloads are not throttled and Steam's download regions are not
+selectable.
