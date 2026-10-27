@@ -339,9 +339,15 @@ build_port() {
 		    die "building $p failed; see $STATE/build-$(echo $p | tr / _).log"
 		say "  built $name in $((($(date +%s) - start) / 60)) min"
 	fi
+	# By file name, so that a first install and an update work alike;
+	# its dependencies come from the build area or the release packages.
+	mirror=$(cat /etc/installurl 2>/dev/null || echo https://cdn.openbsd.org/pub/OpenBSD)
 	priv "install $name, built here (unsigned, so it is trusted from $work/packages)" \
-	    env TRUSTED_PKG_PATH=$work/packages/amd64/all pkg_add -u -D unsigned "$name" ||
-	    die "installing $name failed"
+	    env TRUSTED_PKG_PATH=$work/packages/amd64/all/ \
+	    PKG_PATH=$work/packages/amd64/all/:$mirror/$REL/packages/amd64/ \
+	    pkg_add -r -D unsigned "$pkg" || die "installing $name failed"
+	[ $DRYRUN = 1 ] || pkg_info -qe "$name" >/dev/null 2>&1 ||
+	    die "$name is not installed after pkg_add; see the messages above"
 	# The build tree is no longer needed; it is large.
 	[ $DRYRUN = 1 ] || (cd "$PORTS/$p" && make $(mkargs) clean >/dev/null 2>&1)
 }
