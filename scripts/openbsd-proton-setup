@@ -39,7 +39,7 @@ BIN_DEPS="autoconf-2.73 automake-1.18.1 bison nasm gmake git llvm%22
 	gst-plugins-ugly gst-libav gettext-tools libinotify libgphoto
 	sane-backends-- libpcap pcsc-lite gnutls cups-libs dbus libxkbcommon
 	gtk+4-- samba-- libgcrypt gmp cmake ninja meson glslang fontforge
-	py3-fonttools unzip xz zstd"
+	py3-fonttools unzip-- xz zstd"
 
 usage() {
 	cat >&2 <<-EOF
@@ -293,20 +293,26 @@ setup_ports_tree() {
 BIN_DONE=0
 install_bin_deps() {
 	step "Build dependencies from the OpenBSD $REL packages"
-	# Compare package stems: "llvm-22" and "samba--" are pkg_add names,
-	# the installed packages are llvm-22.1.8p10 and samba-4.25.1v0.
-	have=$(pkg_info -q | sed -E 's/-[0-9][^-]*(-[a-z0-9_]+)*$//' | sort -u)
-	missing=
-	for p in $BIN_DEPS; do
-		stem=$(echo "$p" | sed -E 's/--.*$//; s/%.*$//; s/-[0-9][0-9.]*$//')
-		echo "$have" | grep -qxF "$stem" || missing="$missing $p"
-	done
+	missing=$(missing_bin_deps)
 	if [ -z "$missing" ]; then
 		ok "all present"
 		return 0
 	fi
 	priv "install the packages needed to build wine and DXVK:$missing" \
 	    pkg_add -I $missing || die "pkg_add failed; see the messages above"
+	# pkg_add -I skips ambiguous names silently; check again.
+	[ $DRYRUN = 1 ] || [ -z "$(missing_bin_deps)" ] ||
+	    die "still missing after pkg_add:$(missing_bin_deps)"
+}
+
+# Compare package stems: "llvm%22" and "samba--" are pkg_add names, the
+# installed packages are llvm-22.1.8p10 and samba-4.25.1v0.
+missing_bin_deps() {
+	have=$(pkg_info -q | sed -E 's/-[0-9][^-]*(-[a-z0-9_]+)*$//' | sort -u)
+	for p in $BIN_DEPS; do
+		stem=$(echo "$p" | sed -E 's/--.*$//; s/%.*$//; s/-[0-9][0-9.]*$//')
+		echo "$have" | grep -qxF "$stem" || printf ' %s' "$p"
+	done
 }
 
 # make(1) settings for building our ports out of this checkout.
