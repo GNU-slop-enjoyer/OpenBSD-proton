@@ -511,6 +511,32 @@ cmd_info(uint32_t appid)
 	cm_close(&cm);
 }
 
+/* Download one depot of app srcapp into dir: 0 done, -1 failed, 1 skipped. */
+static int
+install_depot(struct cm *cm, char **servers, uint32_t srcapp, struct kv *d,
+    const char *dir)
+{
+	uint32_t depot = strtoul(d->key, NULL, 10);
+	uint64_t gid = depot_manifest(d), code = 0;
+	uint8_t key[32];
+	struct manifest m;
+	int r;
+
+	printf("depot %u, manifest %llu\n", depot, (unsigned long long)gid);
+	if (steam_depot_key(cm, srcapp, depot, key) == -1) {
+		warnx_("no key for depot %u (not owned?); skipped", depot);
+		return 1;
+	}
+	if (steam_manifest_code(cm, srcapp, depot, gid, branch, &code) == -1)
+		code = 0;
+	if (manifest_fetch(servers, depot, gid, code, key, &m) == -1)
+		return -1;
+	r = depot_download(servers, &m, key, dir, threads);
+	manifest_free(&m);
+	memset(key, 0, sizeof(key));
+	return r;
+}
+
 static void
 cmd_install(uint32_t appid)
 {
@@ -519,10 +545,10 @@ cmd_install(uint32_t appid)
 	struct launch l;
 	uint32_t *apps = NULL, *owned = NULL;
 	size_t napps = 0, nowned = 0;
-	const char *name, *idir;
+	const char *name, *idir, *type;
 	char *dir, **servers, *infopath, *infodir;
 	struct buf info = { 0 };
-	int ndepots = 0, failed = 0, only32 = 0;
+	int ndepots = 0, failed = 0, only32 = 0, is_game;
 
 	steam_session(&cm, anonymous);
 	if (!anonymous)
@@ -530,6 +556,8 @@ cmd_install(uint32_t appid)
 	app = fetch_app(&cm, appid);
 	name = kv_str(app, "appinfo/common/name");
 	idir = kv_str(app, "appinfo/config/installdir");
+	type = kv_str(app, "appinfo/common/type");
+	is_game = type && strcasecmp(type, "game") == 0;
 	if (name == NULL)
 		name = "unknown";
 	if (idir == NULL || !*idir || strchr(idir, '/') || strcmp(idir, "..") == 0)
@@ -545,40 +573,41 @@ cmd_install(uint32_t appid)
 		die("%s has no depots", name);
 	for (d = depots->child; d; d = d->next) {
 		uint32_t depot;
-		uint64_t gid, code = 0;
-		uint8_t key[32];
-		struct manifest m;
-		const char *why;
+		const char *why, *from;
 
 		if (!isdigit((unsigned char)d->key[0]) || d->child == NULL)
 			continue;
 		depot = strtoul(d->key, NULL, 10);
+		from = kv_str(d->child, "depotfromapp");
+		if (from && strcmp(from, "1007") == 0 && !is_game &&
+		    oslist_has_windows(d->child, "config/oslist")) {
+			/*
+			 * Tools and dedicated servers load steamclient64.dll
+			 * from their own folder; SteamCMD installs the
+			 * Steamworks SDK Redist (app 1007) depot next to them.
+			 */
+			struct kv *sdk = fetch_app(&cm, 1007), *sd;
+			char key[64];
+			snprintf(key, sizeof(key), "appinfo/depots/%u", depot);
+			if ((sd = kv_get(sdk, key)) && depot_manifest(sd)) {
+				if (install_depot(&cm, servers, 1007, sd, dir) == 0)
+					ndepots++;
+				else
+					failed++;
+			}
+			kv_free(sdk);
+			continue;
+		}
 		if ((why = depot_skip(d, anonymous ? NULL : owned, nowned))) {
 			if (strcmp(why, "32-bit only") == 0)
 				only32++;
 			debug("skip depot %u: %s", depot, why);
 			continue;
 		}
-		gid = depot_manifest(d);
-		printf("depot %u, manifest %llu\n", depot,
-		    (unsigned long long)gid);
-		if (steam_depot_key(&cm, appid, depot, key) == -1) {
-			warnx_("no key for depot %u (not owned?); skipped", depot);
-			continue;
+		switch (install_depot(&cm, servers, appid, d, dir)) {
+		case 0: ndepots++; break;
+		case -1: failed++; break;
 		}
-		if (steam_manifest_code(&cm, appid, depot, gid, branch,
-		    &code) == -1)
-			code = 0;
-		if (manifest_fetch(servers, depot, gid, code, key, &m) == -1) {
-			failed++;
-			continue;
-		}
-		if (depot_download(servers, &m, key, dir, threads) == -1)
-			failed++;
-		else
-			ndepots++;
-		manifest_free(&m);
-		memset(key, 0, sizeof(key));
 	}
 	if (ndepots == 0 && !failed) {
 		if (only32)
@@ -595,8 +624,25 @@ cmd_install(uint32_t appid)
 	mkdir_p(infodir, 0755);
 	buf_printf(&info, "name=%s\ndir=%s\n", name, dir);
 	if (pick_launch(app, &l) == 0) {
-		char *exe = unix_path(dir, l.exe);
+		char *exe = unix_path(dir, l.exe), *sl, *ids;
 		buf_printf(&info, "exe=%s\n", exe);
+		/*
+		 * steam_appid.txt next to the program is the Steamworks SDK's
+		 * way to start a game without the Steam client relaunching
+		 * it (SteamAPI_RestartAppIfNecessary); games whose Steam
+		 * features are optional then start.
+		 */
+		if ((sl = strrchr(exe, '/'))) {
+			struct stat st;
+			*sl = '\0';
+			ids = xasprintf("%s/steam_appid.txt", exe);
+			if (stat(ids, &st) == -1) {
+				char num[16];
+				snprintf(num, sizeof(num), "%u", appid);
+				write_file_atomic(ids, num, strlen(num), 0644);
+			}
+			free(ids);
+		}
 		free(exe);
 		if (l.args)
 			buf_printf(&info, "args=%s\n", l.args);
@@ -803,6 +849,7 @@ cmd_run(const char *id, int argc, char **argv)
 	const char *proton, *shared;
 	char **av = NULL, *pfx, *pfxname;
 	int ac = 0, i;
+	size_t n;
 
 	if (load_steam_game(id, &g) == -1 && load_own_game(id, &g) == -1)
 		die("no installed game \"%s\" (see: proton-launcher list)", id);
@@ -813,10 +860,24 @@ cmd_run(const char *id, int argc, char **argv)
 	proton = config_get("proton");
 	if (proton == NULL)
 		proton = "proton-openbsd";
-	av = xcalloc(4, sizeof(char *));
+	av = xcalloc(5, sizeof(char *));
 	av[ac++] = xstrdup(proton);
-	av[ac++] = xstrdup("run");
-	av[ac++] = xstrdup(g.exe);
+	n = strlen(g.exe);
+	if (n > 4 && (strcasecmp(g.exe + n - 4, ".bat") == 0 ||
+	    strcasecmp(g.exe + n - 4, ".cmd") == 0)) {
+		/* Batch files run in wine's cmd, from their own directory. */
+		const char *base = strrchr(g.exe, '/');
+		av[ac++] = xstrdup("cmd");
+		av[ac++] = xstrdup("/c");
+		av[ac++] = xstrdup(base ? base + 1 : g.exe);
+		if (!g.workdir) {
+			g.workdir = xstrdup(g.exe);
+			*strrchr(g.workdir, '/') = '\0';
+		}
+	} else {
+		av[ac++] = xstrdup("run");
+		av[ac++] = xstrdup(g.exe);
+	}
 	if (g.args)
 		split_args(g.args, &av, &ac);
 	for (i = 0; i < argc; i++) {

@@ -18,20 +18,41 @@ actually been tested see [TESTING.md](TESTING.md).
 
 ## Installing
 
-The ports are not in the OpenBSD ports tree. Copy them into it (for example
-under `/usr/ports/mystuff`) and build packages as usual:
+On the OpenBSD machine, as your normal user (not root):
 
-    for p in devel/mingw-w64 graphics/dxvk graphics/vkd3d-proton \
-        emulators/proton-wine emulators/proton-wine-addons \
-        fonts/proton-fonts emulators/proton-openbsd; do
-            (cd /usr/ports/mystuff/$p && make package)
-    done
-    doas env TRUSTED_PKG_PATH=/usr/ports/packages/amd64/all \
-        pkg_add proton-openbsd proton-wine-addons
+    doas pkg_add git            # or: ftp https://github.com/GNU-slop-enjoyer/OpenBSD-proton/archive/main.tar.gz
+    git clone https://github.com/GNU-slop-enjoyer/OpenBSD-proton
+    cd OpenBSD-proton
+    make
 
-(`PACKAGE_REPOSITORY` decides where the packages land; locally built
-packages are unsigned, hence `TRUSTED_PKG_PATH`.) proton-wine alone takes
-about two hours to build on six cores.
+`make` runs `scripts/openbsd-proton-setup`, which:
+
+1. checks the system and stops with an explanation if something is
+   missing: OpenBSD 8.0/amd64, doas set up, a `wxallowed` filesystem with
+   about 25 GB free for the build, `/usr/local` `wxallowed`, the memory
+   limit of your login class, sndiod, X, the GPU driver (amdgpu → radv,
+   inteldrm → anv);
+2. if your login class allows less than 8 GB per process, adds a login
+   class `proton` (datasize unlimited, more files) to `/etc/login.conf` and
+   moves you into it — log out and in once afterwards;
+3. fetches the 8.0 ports tree into `/usr/ports` if it is missing (checked
+   with signify);
+4. installs the build dependencies from the 8.0 packages;
+5. builds the ports in this repository in order (mingw-w64, DXVK,
+   vkd3d-proton, proton-wine, Wine Mono/Gecko, fonts, proton-openbsd,
+   proton-launcher) and installs each package;
+6. builds a test program and runs it, and checks that proton-launcher
+   reaches Steam.
+
+Every root step is printed with the reason and asked for first (`-y`
+skips the questions). `make dry-run` shows what would happen, `make check`
+only runs the checks and tests, `make update` pulls and rebuilds what
+changed, `make uninstall` removes the packages (games and prefixes stay).
+Logs: `~/.cache/openbsd-proton/`. The first build takes one to two hours
+(wine is most of it).
+
+The packages are ordinary unsigned packages built on your machine; the
+build area is `openbsd-proton/` on the largest `wxallowed` filesystem.
 
 ## Running a program
 
@@ -50,6 +71,37 @@ lists the environment variables; the most useful ones:
 | `PROTON_NO_FSYNC=1` | turn off fsync (in-process synchronization) |
 | `WINE_PRECISE_SLEEP=1` | precise Sleep() for all programs (costs CPU; by default only for programs that call timeBeginPeriod) |
 | `PROTON_LOG=1` | log to `$HOME/proton-<program>.log` |
+
+## Steam games and your own games: proton-launcher
+
+`proton-launcher` logs in to Steam, downloads the Windows games your
+account owns from Steam's servers and starts them with `proton-openbsd`.
+It is a native OpenBSD program; Valve's Steam client is not used or
+installed.
+
+    proton-launcher login            # password, then the Steam Guard code or app approval
+    proton-launcher library          # your Windows games and their app IDs
+    proton-launcher install 1234560  # download (re-run to update or resume)
+    proton-launcher run 1234560
+
+    proton-launcher add Mygame ~/games/mygame/Mygame.exe
+    proton-launcher run Mygame
+
+    proton-launcher                  # menu: installed games, log in, install, add
+
+Each game gets its own wine prefix under
+`~/.local/share/proton-launcher/prefixes/`. The login token Steam returns is
+kept in `~/.local/share/proton-launcher/login` (mode 0600); the password
+is never stored. `proton-launcher logout` deletes the token.
+
+What to expect: games that do not need a running Steam client work like
+any other program. Many games call the Steamworks API at start
+(`steam_api64.dll`) and expect the Steam client to be running; without it
+they usually quit at once or show an error. There is no way around that
+without running Valve's client or a Steam emulator, and neither is done
+here. Anti-cheat does not work.
+`proton-launcher info APPID` shows which depots would be downloaded; a
+game whose Windows depots are all 32-bit cannot run on OpenBSD.
 
 ## Common problems
 

@@ -1,0 +1,449 @@
+#!/bin/ksh
+#
+# openbsd-proton-setup: build and install the OpenBSD Proton stack
+# (proton-wine, DXVK, vkd3d-proton, fonts, Wine Mono/Gecko, proton-openbsd,
+# proton-launcher) on OpenBSD 8.0 amd64 from this repository's ports.
+#
+# usage: openbsd-proton-setup [-n] [-y] [-j jobs] [-l log] [install|uninstall|check]
+#
+# Run it as your normal user; privileged steps go through doas(1) and are
+# announced first.  Re-running it updates what changed (idempotent).
+#
+# Copyright (c) 2026 The OpenBSD Proton project contributors
+# Distributed under the LGPL 2.1 or later.
+
+set -u
+
+TOP=$(cd "$(dirname "$0")/.." && pwd)
+PORTS=$TOP/ports
+DRYRUN=0
+YES=0
+JOBS=
+LOG=
+CMD=install
+REL=8.0
+V=80
+
+# Ports in build order, and the packages they produce.
+BUILD_ORDER="devel/mingw-w64 graphics/dxvk graphics/vkd3d-proton
+	emulators/proton-wine emulators/proton-wine-addons fonts/proton-fonts
+	emulators/proton-openbsd games/proton-launcher"
+OUR_PKGS="proton-launcher proton-openbsd proton-fonts proton-wine-addons
+	proton-wine vkd3d-proton dxvk mingw-w64"
+
+# Release packages needed to build them (docs/DEPENDENCIES.md); the rest
+# of the dependencies come with these.
+BIN_DEPS="autoconf-2.73 automake-1.18.1 bison nasm gmake git llvm-22
+	pulseaudio sdl2 ffmpeg vulkan-loader vulkan-headers
+	gstreamer1 gst-plugins-base gst-plugins-good gst-plugins-bad
+	gst-plugins-ugly gst-libav gettext-tools libinotify libgphoto
+	sane-backends-- libpcap pcsc-lite gnutls cups-libs dbus libxkbcommon
+	gtk+4-- samba-- libgcrypt gmp cmake ninja meson glslang fontforge
+	py3-fonttools unzip xz zstd"
+
+usage() {
+	cat >&2 <<-EOF
+	usage: ${0##*/} [-n] [-y] [-j jobs] [-l log] [install|uninstall|check]
+	  install    build and install everything (default; re-run to update)
+	  uninstall  remove the packages (your games and prefixes stay)
+	  check      only run the checks and the tests of an installed stack
+	  -n         dry run: show what would be done
+	  -y         do not ask before privileged steps
+	  -j jobs    parallel build jobs (default: number of CPUs)
+	  -l log     log file (default: ~/.cache/openbsd-proton/setup.log)
+	EOF
+	exit 2
+}
+
+while getopts nyj:l: ch; do
+	case $ch in
+	n) DRYRUN=1 ;;
+	y) YES=1 ;;
+	j) JOBS=$OPTARG ;;
+	l) LOG=$OPTARG ;;
+	*) usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -le 1 ] || usage
+[ $# -eq 1 ] && CMD=$1
+case $CMD in install|uninstall|check) ;; *) usage ;; esac
+
+STATE=${XDG_CACHE_HOME:-$HOME/.cache}/openbsd-proton
+mkdir -p "$STATE"
+LOG=${LOG:-$STATE/setup.log}
+: >> "$LOG"
+
+bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+say() { echo "$*"; echo "$(date '+%H:%M:%S') $*" >> "$LOG"; }
+step() { echo; bold "==> $*"; echo "$(date '+%H:%M:%S') ==> $*" >> "$LOG"; }
+warn() { echo "warning: $*" >&2; echo "warning: $*" >> "$LOG"; }
+die() { echo "error: $*" >&2; echo "error: $*" >> "$LOG"; exit 1; }
+
+# Run a command, or only show it in a dry run.
+run() {
+	echo "+ $*" >> "$LOG"
+	if [ $DRYRUN = 1 ]; then
+		echo "  would run: $*"
+		return 0
+	fi
+	"$@"
+}
+
+# A privileged command: say what and why, ask unless -y.
+priv() {
+	why=$1
+	shift
+	say "  needs root: $why"
+	say "    doas $*"
+	if [ $DRYRUN = 1 ]; then
+		return 0
+	fi
+	if [ $YES = 0 ]; then
+		printf '  run it? [Y/n] '
+		read -r ans || ans=n
+		case $ans in [nN]*) die "stopped; nothing else was changed" ;; esac
+	fi
+	echo "+ doas $*" >> "$LOG"
+	doas "$@"
+}
+
+# ---------------------------------------------------------------- checks
+
+ERRORS=0
+fail() { echo "  [FAIL] $*"; echo "[FAIL] $*" >> "$LOG"; ERRORS=$((ERRORS + 1)); }
+ok() { echo "  [ ok ] $*"; echo "[ ok ] $*" >> "$LOG"; }
+note() { echo "  [note] $*"; echo "[note] $*" >> "$LOG"; }
+
+# Largest filesystem among candidates that is mounted wxallowed; wine is a
+# USE_WXNEEDED port and must be built (and run) on one.
+pick_workdir() {
+	best= bestfree=0
+	for d in /home /usr/local /usr/obj; do
+		mount | grep -q " on $d type ffs .*wxallowed" || continue
+		free=$(df -k "$d" | awk 'NR == 2 { print $4 }')
+		if [ "$free" -gt "$bestfree" ]; then
+			best=$d
+			bestfree=$free
+		fi
+	done
+	echo "$best $bestfree"
+}
+
+check_system() {
+	step "Checking the system"
+	[ "$(uname -s)" = OpenBSD ] || die "this is $(uname -s), not OpenBSD"
+	if [ "$(uname -m)" != amd64 ]; then
+		fail "architecture $(uname -m); only amd64 is supported"
+	else
+		ok "amd64"
+	fi
+	r=$(uname -r)
+	if [ "$r" = $REL ]; then
+		ok "OpenBSD $r"
+	else
+		warn "OpenBSD $r; the ports are made for $REL"
+	fi
+	[ "$(id -u)" != 0 ] || die "run this as your normal user, not root (it uses doas for the root steps)"
+
+	if [ -f /etc/doas.conf ] && doas -C /etc/doas.conf true 2>/dev/null |
+	    grep -q permit; then
+		ok "doas is configured"
+	else
+		fail "doas is not set up for $(id -un). As root (su -), run:
+	        echo 'permit persist :wheel' > /etc/doas.conf
+	      and make sure $(id -un) is in the wheel group (usermod -G wheel $(id -un))"
+	fi
+
+	set -- $(pick_workdir)
+	WXDIR=${1:-}
+	WXFREE=${2:-0}
+	if [ -z "$WXDIR" ]; then
+		fail "no filesystem is mounted wxallowed (needed by wine); see mount(8) and fstab(5)"
+	elif [ "$WXFREE" -lt $((25 * 1024 * 1024)) ]; then
+		fail "$WXDIR (wxallowed) has only $((WXFREE / 1024 / 1024)) GB free; the build needs about 25 GB"
+	else
+		ok "build area on $WXDIR ($((WXFREE / 1024 / 1024)) GB free, wxallowed)"
+	fi
+	if mount | grep -q ' on /usr/local type ffs .*wxallowed'; then
+		ok "/usr/local is wxallowed (wine runs from there)"
+	else
+		fail "/usr/local is not mounted wxallowed; wine cannot run. Add wxallowed to its line in /etc/fstab"
+	fi
+
+	d=$(ulimit -H -d)
+	if [ "$d" = unlimited ] || [ "$d" -ge $((8 * 1024 * 1024)) ]; then
+		ok "memory limit (datasize) $d KB"
+		NEED_CLASS=0
+	else
+		note "your login class allows only $((d / 1024)) MB of memory per process;
+	      building wine and running games needs more (see below)"
+		NEED_CLASS=1
+	fi
+
+	if pgrep -xq sndiod; then
+		ok "sndiod is running (sound)"
+	else
+		note "sndiod is not running: no sound (rcctl enable sndiod; rcctl start sndiod)"
+	fi
+	if [ -n "${DISPLAY:-}" ]; then
+		ok "X is running (DISPLAY=$DISPLAY)"
+	else
+		note "DISPLAY is not set: games need X; the tests run without it"
+	fi
+
+	GPU=none
+	if dmesg | grep -q '^amdgpu[0-9]* at'; then
+		GPU=amdgpu
+	elif dmesg | grep -q '^inteldrm[0-9]* at'; then
+		GPU=inteldrm
+	elif dmesg | grep -q '^radeondrm[0-9]* at'; then
+		GPU=radeondrm
+	fi
+	case $GPU in
+	amdgpu)
+		if [ -f /usr/X11R6/share/vulkan/icd.d/radeon_icd.x86_64.json ]; then
+			ok "AMD GPU (amdgpu): Vulkan through radv, DXVK and vkd3d-proton usable"
+		else
+			fail "AMD GPU but no radv driver in /usr/X11R6 (install the xbase set)"
+		fi ;;
+	inteldrm)
+		ok "Intel GPU (inteldrm): Vulkan through anv for newer GPUs" ;;
+	radeondrm)
+		note "older AMD GPU (radeondrm): no Vulkan; games use wined3d (PROTON_USE_WINED3D=1)" ;;
+	none)
+		note "no supported GPU driver attached: Direct3D games will use software rendering or fail.
+	      If you have a recent AMD card (for example RX 9070), check 'dmesg | grep -i amdgpu'
+	      and run 'doas fw_update' so its firmware is installed" ;;
+	esac
+
+	free=$(df -k /usr/local | awk 'NR == 2 { print $4 }')
+	if [ "$free" -lt $((6 * 1024 * 1024)) ]; then
+		fail "/usr/local has only $((free / 1024)) MB free; the packages need about 6 GB"
+	else
+		ok "/usr/local has $((free / 1024 / 1024)) GB free"
+	fi
+	[ $ERRORS = 0 ] || die "$ERRORS check(s) failed; fix them and run ${0##*/} again"
+}
+
+# A login class with enough memory: wine maps large address ranges and
+# games want several GB.  The change applies to new logins; the build
+# continues through "doas -u $USER", which uses the new class at once.
+setup_class() {
+	[ $NEED_CLASS = 1 ] || return 0
+	step "Login class"
+	user=$(id -un)
+	cls=$(userinfo "$user" | awk '$1 == "class" { print $2 }')
+	if ! grep -q '^proton:' /etc/login.conf; then
+		say "  adding a login class \"proton\" to /etc/login.conf:"
+		say "    proton:datasize=infinity:maxproc=1024:openfiles=8192:stacksize-cur=8M:tc=default:"
+		priv "more memory and open files per process for wine and games" \
+		    sh -c 'printf "%s\n" "" "# OpenBSD Proton: wine and games need large datasize and many files" "proton:\\" "	:datasize=infinity:maxproc=1024:openfiles=8192:stacksize-cur=8M:\\" "	:tc=default:" >> /etc/login.conf && { [ ! -f /etc/login.conf.db ] || cap_mkdb /etc/login.conf; }'
+	fi
+	if [ "$cls" != proton ]; then
+		priv "put $user in the \"proton\" login class (was \"${cls:-default}\")" \
+		    usermod -L proton "$user"
+	fi
+	say "  Log out and in again for your shell to get the new limits."
+	SUDO_SELF=1
+}
+
+# Run a build command with the new class limits if we just changed them.
+as_user() {
+	if [ "${SUDO_SELF:-0}" = 1 ] && [ $DRYRUN = 0 ]; then
+		echo "+ doas -u $(id -un) $*" >> "$LOG"
+		doas -u "$(id -un)" env HOME="$HOME" PATH="$PATH" "$@"
+	else
+		run "$@"
+	fi
+}
+
+# ---------------------------------------------------------- ports tree
+
+setup_ports_tree() {
+	step "OpenBSD ports tree"
+	if [ -f /usr/ports/infrastructure/mk/bsd.port.mk ]; then
+		ok "/usr/ports is present"
+		return 0
+	fi
+	mirror=$(cat /etc/installurl 2>/dev/null || echo https://cdn.openbsd.org/pub/OpenBSD)
+	dl=$STATE/dist
+	run mkdir -p "$dl"
+	say "  fetching ports.tar.gz for $REL from $mirror and checking its signature"
+	run ftp -V -o "$dl/SHA256.sig" "$mirror/$REL/SHA256.sig" || die "download failed"
+	run ftp -V -o "$dl/ports.tar.gz" "$mirror/$REL/ports.tar.gz" || die "download failed"
+	if [ $DRYRUN = 0 ]; then
+		(cd "$dl" && signify -C -p /etc/signify/openbsd-$V-base.pub \
+		    -x SHA256.sig ports.tar.gz) || die "ports.tar.gz failed the signature check"
+	fi
+	priv "unpack the ports tree into /usr/ports (owned by you, so builds need no root)" \
+	    sh -c "mkdir -p /usr/ports && chown $(id -un) /usr/ports"
+	run tar -C /usr -xzf "$dl/ports.tar.gz" || die "unpacking failed"
+}
+
+# ------------------------------------------------------------- building
+
+BIN_DONE=0
+install_bin_deps() {
+	step "Build dependencies from the OpenBSD $REL packages"
+	# Compare package stems: "llvm-22" and "samba--" are pkg_add names,
+	# the installed packages are llvm-22.1.8p10 and samba-4.25.1v0.
+	have=$(pkg_info -q | sed -E 's/-[0-9][^-]*(-[a-z0-9_]+)*$//' | sort -u)
+	missing=
+	for p in $BIN_DEPS; do
+		stem=$(echo "$p" | sed -E 's/--.*$//; s/-[0-9][0-9.]*$//')
+		echo "$have" | grep -qxF "$stem" || missing="$missing $p"
+	done
+	if [ -z "$missing" ]; then
+		ok "all present"
+		return 0
+	fi
+	priv "install the packages needed to build wine and DXVK:$missing" \
+	    pkg_add -I $missing
+}
+
+# make(1) settings for building our ports out of this checkout.
+mkargs() {
+	work=${WXDIR:-/usr/local}/openbsd-proton
+	echo "PORTSDIR_PATH=/usr/ports:$PORTS WRKOBJDIR=$work/pobj DISTDIR=$work/distfiles PACKAGE_REPOSITORY=$work/packages PLIST_REPOSITORY=$work/plist BULK_COOKIES_DIR=$work/bulk LOCKDIR=$work/locks MAKE_JOBS=${JOBS:-$(sysctl -n hw.ncpuonline)} SUDO=doas"
+}
+
+pkgname_of() {
+	(cd "$PORTS/$1" && make $(mkargs) show=FULLPKGNAME 2>/dev/null)
+}
+
+build_port() {
+	p=$1
+	name=$(pkgname_of "$p")
+	work=${WXDIR:-/usr/local}/openbsd-proton
+	pkg=$work/packages/amd64/all/$name.tgz
+	if pkg_info -qe "$name" >/dev/null 2>&1; then
+		ok "$name is installed"
+		return 0
+	fi
+	if [ -f "$pkg" ]; then
+		say "  $name already built"
+	else
+		say "  building $name (log: $STATE/build-$(echo $p | tr / _).log)"
+		[ $DRYRUN = 1 ] && { echo "  would build $p"; return 0; }
+		start=$(date +%s)
+		(cd "$PORTS/$p" && as_user make $(mkargs) package) \
+		    > "$STATE/build-$(echo $p | tr / _).log" 2>&1 ||
+		    die "building $p failed; see $STATE/build-$(echo $p | tr / _).log"
+		say "  built $name in $((($(date +%s) - start) / 60)) min"
+	fi
+	priv "install $name, built here (unsigned, so it is trusted from $work/packages)" \
+	    env TRUSTED_PKG_PATH=$work/packages/amd64/all pkg_add -u -D unsigned "$name" ||
+	    die "installing $name failed"
+	# The build tree is no longer needed; it is large.
+	[ $DRYRUN = 1 ] || (cd "$PORTS/$p" && make $(mkargs) clean >/dev/null 2>&1)
+}
+
+build_all() {
+	step "Building the ports (the first build of wine takes an hour or more)"
+	work=${WXDIR:-/usr/local}/openbsd-proton
+	if [ ! -d "$work" ]; then
+		priv "create the build area $work (on a wxallowed filesystem, owned by you)" \
+		    sh -c "mkdir -p '$work' && chown $(id -un) '$work'"
+	fi
+	run mkdir -p "$work/pobj" "$work/distfiles" "$work/packages" "$work/plist" "$work/bulk" "$work/locks"
+	for p in $BUILD_ORDER; do
+		build_port "$p"
+	done
+}
+
+# --------------------------------------------------------------- tests
+
+run_tests() {
+	step "Testing the installed stack"
+	TESTS=0
+	if ! command -v proton-openbsd >/dev/null; then
+		fail "proton-openbsd is not installed"
+		return
+	fi
+	pfx=$STATE/test-prefix
+	tdir=$STATE/tests
+	mkdir -p "$tdir"
+	cc=/usr/local/bin/x86_64-w64-mingw32-clang
+	if [ ! -x "$cc" ]; then
+		note "mingw-w64 is not installed; skipping the test programs"
+		return
+	fi
+	for t in basic; do
+		# Freestanding programs with their own entry point.
+		[ -f "$tdir/$t.exe" ] || "$cc" -O1 -nostartfiles \
+		    -Wl,-e,mainCRTStartup -o "$tdir/$t.exe" "$TOP/tests/pe/$t.c" \
+		    -lkernel32 >> "$LOG" 2>&1 ||
+		    { fail "compiling tests/pe/$t.c"; continue; }
+	done
+	say "  creating a wine prefix (the first time takes a minute)"
+	n=$(cd "$tdir" && PROTON_PREFIX=$pfx WINEDEBUG=-all timeout 600 \
+	    proton-openbsd run ./basic.exe 2>>"$LOG" | grep -c '^ok')
+	if [ "$n" -ge 6 ]; then
+		ok "basic.exe: $n/6 tests pass (processes, threads, files, memory)"
+	else
+		fail "basic.exe: $n/6 tests pass; see $LOG"
+	fi
+	if command -v proton-launcher >/dev/null; then
+		if PROTON_LAUNCHER_DIR=$STATE/launcher-test timeout 120 \
+		    proton-launcher -a info 1007 >> "$LOG" 2>&1; then
+			ok "proton-launcher reaches Steam (anonymous app info)"
+		else
+			fail "proton-launcher cannot reach Steam; see $LOG"
+		fi
+	fi
+}
+
+# ---------------------------------------------------------------- main
+
+finish() {
+	step "Done"
+	cat <<-EOF
+	  Start games:     proton-launcher            (menu)
+	  Steam:           proton-launcher login
+	                   proton-launcher library
+	                   proton-launcher install APPID
+	  Your own games:  proton-launcher add NAME /path/to/game.exe
+	                   proton-launcher run NAME
+	  Any program:     proton-openbsd run program.exe
+
+	  Manuals: man proton-launcher, man proton-openbsd
+	  Log of this run: $LOG
+	EOF
+	if [ "${SUDO_SELF:-0}" = 1 ]; then
+		echo
+		bold "  Log out and in again before starting games (new memory limits)."
+	fi
+}
+
+say "openbsd-proton-setup $CMD ($(date)); log: $LOG"
+case $CMD in
+check)
+	check_system
+	run_tests
+	;;
+uninstall)
+	step "Removing the packages"
+	installed=
+	for p in $OUR_PKGS; do
+		pkg_info -qe "$p-*" >/dev/null 2>&1 && installed="$installed $p"
+	done
+	if [ -z "$installed" ]; then
+		say "  nothing installed"
+	else
+		priv "remove$installed" pkg_delete $installed
+	fi
+	say "  Your games, logins and prefixes in ~/.local/share/proton-launcher and"
+	say "  ~/.local/share/proton-openbsd are kept; delete them by hand if wanted."
+	;;
+install)
+	check_system
+	setup_class
+	setup_ports_tree
+	install_bin_deps
+	build_all
+	[ $DRYRUN = 1 ] || run_tests
+	finish
+	;;
+esac
+exit 0
