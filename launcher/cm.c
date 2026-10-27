@@ -54,26 +54,28 @@ eresult_str(int e)
 	}
 }
 
+/* Up to max "host:port" WebSocket endpoints, best first. */
 static int
-cm_pick_server(char **host, char **port)
+cm_servers(char **list, int max)
 {
 	struct http_resp r;
 	const char *p, *e;
-	char *ep = NULL, *colon;
+	int n = 0;
 
 	if ((p = getenv("PROTON_LAUNCHER_CM")) && *p) {
-		ep = xstrdup(p);
-		goto split;
+		list[0] = xstrdup(p);
+		return 1;
 	}
 	if (http_request(NULL, "GET", "https://api.steampowered.com/"
 	    "ISteamDirectory/GetCMListForConnect/v1/?cellid=0&format=json",
 	    NULL, NULL, 0, &r) == -1 || r.status != 200) {
 		warnx_("cannot fetch the Steam server list");
 		http_resp_free(&r);
-		return -1;
+		return 0;
 	}
 	/* {"endpoint":"host:port","legacy_endpoint":..,"type":"websockets",..} */
-	for (p = (char *)r.body.p; (p = strstr(p, "\"endpoint\":\"")); p = e) {
+	for (p = (char *)r.body.p; n < max && (p = strstr(p, "\"endpoint\":\""));
+	    p = e) {
 		const char *obj_end = strchr(p, '}');
 		p += 12;
 		if ((e = strchr(p, '"')) == NULL)
@@ -82,46 +84,42 @@ cm_pick_server(char **host, char **port)
 			obj_end = p + strlen(p);
 		if (memmem(p, obj_end - p, "\"websockets\"", 12) == NULL)
 			continue;
-		ep = xmalloc(e - p + 1);
-		memcpy(ep, p, e - p);
-		ep[e - p] = '\0';
-		break;
+		list[n] = xmalloc(e - p + 1);
+		memcpy(list[n], p, e - p);
+		list[n][e - p] = '\0';
+		n++;
 	}
 	http_resp_free(&r);
-	if (ep == NULL) {
+	if (n == 0)
 		warnx_("no WebSocket Steam servers listed");
-		return -1;
-	}
-split:
-	if ((colon = strrchr(ep, ':')) == NULL) {
-		*host = ep;
-		*port = xstrdup("443");
-	} else {
-		*colon = '\0';
-		*host = ep;
-		*port = xstrdup(colon + 1);
-	}
-	return 0;
+	return n;
 }
 
 int
 cm_connect(struct cm *cm)
 {
 	struct buf hello = { 0 };
-	char *host, *port;
-	int ret;
+	char *list[4], *colon;
+	int n, i, ret = -1;
 
 	memset(cm, 0, sizeof(*cm));
 	cm->c.fd = -1;
 	cm->steamid = 0;	/* until logon, as the Steam client sends */
 	cm->next_job = 1;
 	cm->heartbeat = 9;
-	if (cm_pick_server(&host, &port) == -1)
-		return -1;
-	debug("connecting to CM %s:%s", host, port);
-	ret = ws_connect(&cm->c, host, port, "/cmsocket/");
-	free(host);
-	free(port);
+	n = cm_servers(list, 4);
+	for (i = 0; i < n; i++) {
+		if (ret == -1) {
+			const char *port = "443";
+			if ((colon = strrchr(list[i], ':'))) {
+				*colon = '\0';
+				port = colon + 1;
+			}
+			debug("connecting to CM %s:%s", list[i], port);
+			ret = ws_connect(&cm->c, list[i], port, "/cmsocket/");
+		}
+		free(list[i]);
+	}
 	if (ret == -1)
 		return -1;
 	pb_varint(&hello, 1, PROTOCOL_VERSION);
