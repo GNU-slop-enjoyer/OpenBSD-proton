@@ -36,7 +36,10 @@ host RAM under 25 GB, and gave permission to merge to main.
 ### Results
 See TESTING.md 2026-10-27/28. All ports build from a clean tree; basic
 6/6 and gui 5/5 on the new packages; anonymous Steam downloads verified on
-Linux and OpenBSD; own games run through the launcher.
+Linux and OpenBSD; own games run through the launcher. **`git clone` +
+`make` on a clean OpenBSD 8.0 install: one pass, 19 minutes, all eight
+packages installed and tested** (obsd-fresh, after four fixes found by the
+earlier runs); re-run is a no-op; `make uninstall` works.
 
 ### Not tested / open
 - **Steam account login, library and a Steam game**: needs the user's
