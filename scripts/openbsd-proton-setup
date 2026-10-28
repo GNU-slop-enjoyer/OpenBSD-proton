@@ -158,9 +158,10 @@ check_system() {
 	set -- $(pick_workdir)
 	WXDIR=${1:-}
 	WXFREE=${2:-0}
-	# 15 GB for a first run (dependencies, one build tree at a time, the
-	# packages); a re-run has most of that in place already.
-	NEED_GB=15
+	# A first run peaked at 5.8 GB on /usr/local (dependencies, one build
+	# tree at a time, the packages); ask for 10.  A re-run has most of that
+	# in place already.
+	NEED_GB=10
 	[ -n "$WXDIR" ] && [ -d "$WXDIR/openbsd-proton" ] && NEED_GB=6
 	if [ -z "$WXDIR" ]; then
 		fail "no filesystem is mounted wxallowed (needed by wine); see mount(8) and fstab(5)"

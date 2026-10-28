@@ -29,12 +29,14 @@ On the OpenBSD machine, as your normal user (not root):
 
 1. checks the system and stops with an explanation if something is
    missing: OpenBSD 8.0/amd64, doas set up, a `wxallowed` filesystem with
-   about 15 GB free for the build, `/usr/local` `wxallowed`, the memory
+   about 10 GB free for the build, `/usr/local` `wxallowed`, the memory
    limit of your login class, sndiod, X, the GPU driver (amdgpu → radv,
    inteldrm → anv);
 2. if your login class allows less than 8 GB per process, adds a login
    class `proton` (datasize unlimited, more files) to `/etc/login.conf` and
-   moves you into it — log out and in once afterwards;
+   moves you into it — log out and in once afterwards (users made by the
+   installer are in class `staff`, whose hard limit is high enough: then
+   only the soft limit is raised, by the script and by `proton-openbsd`);
 3. fetches the 8.0 ports tree into `/usr/ports` if it is missing (checked
    with signify);
 4. installs the build dependencies from the 8.0 packages;
@@ -48,8 +50,8 @@ Every root step is printed with the reason and asked for first (`-y`
 skips the questions). `make dry-run` shows what would happen, `make check`
 only runs the checks and tests, `make update` pulls and rebuilds what
 changed, `make uninstall` removes the packages (games and prefixes stay).
-Logs: `~/.cache/openbsd-proton/`. The first build takes one to two hours
-(wine is most of it).
+Logs: `~/.cache/openbsd-proton/`. On 16 cores the whole first run took
+19 minutes (wine: 7); expect proportionally longer on fewer cores.
 
 The packages are ordinary unsigned packages built on your machine; the
 build area is `openbsd-proton/` on the largest `wxallowed` filesystem.

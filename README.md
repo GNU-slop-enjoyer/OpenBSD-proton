@@ -20,7 +20,7 @@ On OpenBSD 8.0 amd64, as your normal user:
 
 `make` checks the system, builds the ports below on your machine and
 installs them; root steps go through doas and are shown first. The first
-build takes one to two hours. Details: [docs/USING.md](docs/USING.md).
+run took 19 minutes on 16 cores. Details: [docs/USING.md](docs/USING.md).
 
 Then:
 
