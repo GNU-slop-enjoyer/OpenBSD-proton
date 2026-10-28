@@ -46,9 +46,11 @@ do-configure:
 
 do-build:
 	cd ${NATIVE} && ${MAKE_PROGRAM} -j${MAKE_JOBS}
+	mkdir -p ${CROSS}
 	cd ${CROSS} && ${SETENV} PATH="${PATH}" \
 	    CC=x86_64-w64-mingw32-clang CXX=x86_64-w64-mingw32-clang++ \
-	    CFLAGS="-O2" CXXFLAGS="-O2" LDFLAGS="-static" \
+	    CFLAGS="-O2" CXXFLAGS="-O2" \
+	    LDFLAGS="-static-libstdc++ -static-libgcc" \
 	    ${ICU_SRC}/configure --host=x86_64-w64-mingw32 \
 	    --with-cross-build=${NATIVE} --disable-tools \
 	    --with-data-packaging=library ${ICU_OPTS}
