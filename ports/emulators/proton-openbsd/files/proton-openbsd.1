@@ -1,4 +1,4 @@
-.Dd $Mdocdate: October 21 2026 $
+.Dd $Mdocdate: October 28 2026 $
 .Dt PROTON-OPENBSD 1
 .Os
 .Sh NAME
@@ -35,6 +35,30 @@ Wine's fonts, and any fonts in
 are linked into the prefix's
 .Pa drive_c/windows/Fonts ,
 where Proton's wine expects the system fonts.
+.Pp
+ICU 68
+.Pq textproc/proton-icu ,
+which wine's icu.dll forwards to and which programs built on .NET 5 or
+later need, is linked into
+.Pa system32
+as well.
+.Pp
+If
+.Ev SteamAppId
+is set, as
+.Xr proton-launcher 1
+does for Steam games, the program runs under
+.Pa C:\eProgram Files (x86)\eSteam\esteam.exe
+from proton-steamclient.
+It registers itself as the running Steam client and
+.Pa steamclient64.dll
+as its library, so that the game's Steamworks API
+.Pq steam_api64.dll
+starts.
+The library answers for the account proton-launcher logged in with,
+and keeps stats, achievements and cloud files under
+.Ev PROTON_STEAM_USERDATA .
+Online features such as lobbies and the workshop are not available.
 .Pp
 The soft limits on data size and open files are raised to the hard
 limits of the login class, since the
@@ -79,6 +103,10 @@ instead of DXVK and vkd3d-proton.
 If non-zero, also use DXVK's d3d8.
 .It Ev PROTON_NO_D3D11 , PROTON_NO_D3D10
 If non-zero, disable Direct3D 11, or Direct3D 10, as Proton does.
+.It Ev PROTON_NO_STEAM
+Run Steam games without steam.exe and steamclient64.dll.
+.It Ev PROTON_STEAM_TRACE
+Log the calls the game makes into steamclient64.dll to standard error.
 .It Ev PROTON_NO_FSYNC
 If non-zero, do not use fsync, the futex-based in-process implementation
 of Windows synchronization objects; every wait then goes through

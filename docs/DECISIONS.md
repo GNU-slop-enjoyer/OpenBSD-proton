@@ -97,7 +97,8 @@ user's own account and Steam Guard, downloads only depots the account
 owns, and starts games through proton-openbsd. Consequence, documented in
 USING.md and proton-launcher(1): games that need a running Steam client
 (Steamworks `SteamAPI_Init`) do not work. No Steam emulator (Goldberg etc.)
-and nothing that bypasses DRM or ownership is used. `steam_appid.txt` (the
+and nothing that bypasses DRM or ownership is used. *Superseded in part by
+D12 (2026-10-28).* `steam_appid.txt` (the
 Steamworks SDK's developer mechanism) is written so games with optional
 Steam features start.
 
@@ -112,3 +113,23 @@ builds every port as the user (doas for the root steps only, each shown
 and confirmed) in a build area on the largest `wxallowed` filesystem, and
 installs each package right after it is built (the framework's own
 dependency installs of unsigned packages fail through doas).
+
+## D12 — Our own steamclient64.dll for Steamworks games (2026-10-28)
+
+The user's report after testing on the real install: only Stumble Guys
+ran. Most of their library uses the Steamworks API, and `SteamAPI_Init`
+fails without a Steam client (tested: MECCHA CHAMELEON, Gang Beasts; on
+Linux Proton without Steam, Gang Beasts starts without a user and
+without costumes). The user asked to fix the port, not the games.
+
+Decision: `steamclient/` is a client library of our own, in C, built
+with the port's mingw-w64 (port `emulators/proton-steamclient`). It is
+the part of Proton's design (lsteamclient + steam_helper) that does not
+need Valve's client: the vtable layouts of the 212 interface versions are
+generated from Proton's lsteamclient sources (`gen.sh`, layouts only),
+the behaviour is written here. It reports the account proton-launcher
+logged in with and the apps that account owns (from its licenses); it
+does not unlock anything the account does not own, does not touch DRM
+(SteamStub games keep failing), and stores stats and cloud files
+locally. Online services report "offline". This replaces D10's "no Steam
+emulator"; the rest of D10 (no Valve client) stands.

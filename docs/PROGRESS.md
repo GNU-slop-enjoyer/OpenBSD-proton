@@ -3,6 +3,62 @@
 Newest first. Each entry: what changed, files, commands, results, failures,
 blockers, next action.
 
+## 2026-10-28 — Session 5: the user's library on the real install
+
+### Context
+The user tested the real OpenBSD 8.0 install (RX 9070): only Stumble Guys
+ran. They asked to fix the port (not individual games), allowed
+installing games from their library, using the whole OpenBSD install and
+25 GB of RAM. Tests ran on that install booted in QEMU from the Gentoo
+host (`-device nvme` on the Netac ...205767 disk, 10 GB, no GPU), with
+wined3d on llvmpipe and DXVK on lavapipe (lavapipe copied from the dev
+VM into `~/.cache/lvp` on the install, test-only).
+
+### Found
+1. **No Steam client** — every Steamworks game fails `SteamAPI_Init`
+   (`Sys_LoadModule failed to load: C:\Program Files (x86)\Steam\steamclient64.dll`).
+2. **No ICU** — .NET 5+ games die at start (Stardew Valley).
+3. **Protected modules making direct system calls are killed by
+   pinsyscalls** (Brawlhalla's DnaManager.dll): not fixable in the port.
+4. **Gang Beasts stalls on its loading screen** (OpenBSD only): open.
+
+### What changed
+- `steamclient/` + `ports/emulators/proton-steamclient` (new): our own
+  steamclient64.dll and steam.exe (DECISIONS D12, COMPATIBILITY).
+- `proton-openbsd` 0.1p10: installs them into prefixes, runs games with
+  SteamAppId under steam.exe (`PROTON_NO_STEAM`, `PROTON_STEAM_TRACE`);
+  links ICU into system32 (`link_icu`); man page.
+- `proton-launcher` 0.1p0: `$DATA/account` (steamid, persona from
+  ClientAccountInfo, owned apps), owned DLC and build id in `.info`,
+  `PROTON_STEAM_*` for the client, userdata outside the prefix.
+- `ports/textproc/proton-icu` (new): ICU 68.2 PE DLLs from source
+  (native tool build + mingw-w64 cross build; patch for lld).
+- `openbsd-proton-setup`: builds and installs the two new ports.
+- Tests: `tests/pe/steamapi.c` (a game's own steam_api64.dll against
+  steamclient64.dll), `tests/pe/wakeups.c` (lost wake-ups).
+
+### Results (details in TESTING.md)
+- steamapi.exe 12/12 with two real steam_api64.dll versions (wine-staging
+  on the host); Gang Beasts on the host gets through Steam init like with
+  the real client.
+- On the install: proton-steamclient built with the port's mingw clang,
+  installed via `make`; the client reports the real SteamID, persona and
+  419 owned apps. YOMI Hustle, People Playground and SpiderHeck reach
+  their menus/EULA; Stardew Valley reaches its title screen with ICU.
+- Brawlhalla: killed (pinsyscalls). Gang Beasts: loading screen stall.
+
+Later the same session: proton-icu built and installed with `make`;
+Stardew Valley reaches its title screen with it; R.E.P.O. reaches its
+main menu with the account's SteamID; proton-launcher 0.1p1 (socket
+timeouts) completed the Terraria download that had hung (Terraria itself
+is 32-bit).
+
+### Next
+- Gang Beasts stall: compare Unity thread states with the Linux run;
+  look at what the main thread spins on (disassemble the hot loop).
+- More of the library (R.E.P.O., PEAK, Schedule I, Risk of Rain 2) once
+  downloaded; the user tests on the real GPU.
+
 ## 2026-10-27/28 — Session 4: new host, Steam (proton-launcher), one-command install
 
 ### Context

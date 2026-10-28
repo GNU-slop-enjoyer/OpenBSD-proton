@@ -20,6 +20,7 @@ enum {
 	EMSG_CLIENT_LOGOFF = 706,
 	EMSG_CLIENT_LOGON_RESPONSE = 751,
 	EMSG_CLIENT_LOGGED_OFF = 757,
+	EMSG_CLIENT_ACCOUNT_INFO = 768,
 	EMSG_CLIENT_LICENSE_LIST = 780,
 	EMSG_CLIENT_GET_DEPOT_KEY = 5438,
 	EMSG_CLIENT_GET_DEPOT_KEY_RESPONSE = 5439,
@@ -67,6 +68,7 @@ struct cm {
 	struct license	*licenses;
 	size_t		 nlicenses;
 	int		 have_licenses;
+	char		*persona;	/* from ClientAccountInfo */
 };
 
 int	cm_connect(struct cm *);

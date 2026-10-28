@@ -311,3 +311,48 @@ with an integer division by zero. `graphics/dxvk` patch
 `patch-src_util_util_misc_h` treats 0 Hz as an unknown period, a backport of
 upstream DXVK 0aea852 (2026-06-29; Proton's DXVK predates it).
 vkd3d-proton presents through DXVK's dxgi.dll and was affected the same way.
+
+## Steam client, ICU and direct system calls (session 5, real install)
+
+Found by running the user's library on the real OpenBSD 8.0 install
+(booted in QEMU from the Gentoo host, no GPU: wined3d on llvmpipe and
+DXVK on lavapipe).
+
+- **Steamworks without a Steam client.** `steam_api64.dll` loads
+  `C:\Program Files (x86)\Steam\steamclient64.dll` (or the path in
+  `HKCU\Software\Valve\Steam\ActiveProcess\SteamClientDll64`) and logs
+  `SteamAPI_Init(): Sys_LoadModule failed to load` without it.  Fixed by
+  `emulators/proton-steamclient` (DECISIONS D12).  Findings while writing
+  it: struct return values (CSteamID and others) of interface methods use
+  a hidden pointer in RDX on Win64, as MSVC does for member functions;
+  `SteamAPI_ManualDispatch_Init` must come after `SteamAPI_Init`; games
+  ask for the result of a call while its `SteamAPICallCompleted_t` is
+  the current callback, so the result must stay readable until
+  `Steam_FreeLastCallback`.
+- **ICU.**  Wine's icu.dll only forwards to `icuuc68`/`icuin68`; Valve
+  ships ICU 68.2 PE DLLs next to wine and links them into `system32`.
+  Without them every .NET 5+ program dies at start-up after
+  `err:module:find_forwarded_export module not found for forward
+  'icuuc68.u_charsToUChars_68'` (Stardew Valley showed a grey window).
+  Fixed by `textproc/proton-icu` (ICU 68.2 from source, cross-built with
+  mingw-w64) and `link_icu` in proton-openbsd.
+- **Direct system calls are fatal on OpenBSD.**  Brawlhalla's
+  `DnaManager.dll` (an 80 MB protected module) executes `syscall` itself
+  with a Windows system call number.  OpenBSD's pinsyscalls(2) accepts
+  system calls only from the pinned locations in libc and ld.so and kills
+  the process with an uncatchable SIGABRT otherwise; `ktrace -t sS` shows
+  `PINS sendmsg, addr 6ffff474c8bd, errno 78` followed by
+  `PSIG SIGABRT SIG_DFL`.  Linux Proton handles such calls with
+  seccomp/Syscall User Dispatch, which OpenBSD has no equivalent of, and
+  the kernel check happens before any user-space handler could run.  The
+  instruction cannot be found in advance either: the site is reached by
+  a jump into obfuscated bytes.  Not fixable inside the port; games with
+  such protectors (and kernel anti-cheat) do not run.
+- **Open: Gang Beasts stops on its loading screen** (OpenBSD only; the
+  same Windows build under wine-staging and Proton on the Linux host
+  gets past it).  After `GB Started (Serialized)` the main thread keeps
+  running Unity code without any wine call or `Present`, the loading
+  threads wait for work.  Ruled out: Steam (also with steamclient),
+  renderer (wined3d and DXVK), fsync (also with `PROTON_NO_FSYNC=1`),
+  window state (mapped, focused, not iconic), lost wake-ups in condition
+  variables, WaitOnAddress and events (`tests/pe/wakeups.c`, 0 lost).

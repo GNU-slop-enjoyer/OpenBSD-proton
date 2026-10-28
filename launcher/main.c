@@ -83,6 +83,8 @@ struct game {
 	char	*exe;		/* absolute path */
 	char	*args;
 	char	*workdir;
+	char	*dlc;		/* owned DLC, "APPID=NAME;..." */
+	char	*buildid;
 	int	 steam;
 };
 
@@ -95,6 +97,8 @@ game_free(struct game *g)
 	free(g->exe);
 	free(g->args);
 	free(g->workdir);
+	free(g->dlc);
+	free(g->buildid);
 	memset(g, 0, sizeof(*g));
 }
 
@@ -137,6 +141,8 @@ load_steam_game(const char *appid, struct game *g)
 	g->exe = field((char *)b.p, "exe");
 	g->args = field((char *)b.p, "args");
 	g->workdir = field((char *)b.p, "workdir");
+	g->dlc = field((char *)b.p, "dlc");
+	g->buildid = field((char *)b.p, "buildid");
 	buf_free(&b);
 	if (g->name == NULL)
 		g->name = xstrdup(appid);
@@ -220,6 +226,9 @@ all_games(size_t *n)
 
 /* ---- Steam commands ---- */
 
+static void owned_ids(struct cm *, uint32_t **, size_t *, uint32_t **,
+    size_t *);
+
 static void
 cmd_login(const char *account)
 {
@@ -236,6 +245,13 @@ cmd_login(const char *account)
 		die("Steam accepted the password but refused the logon: "
 		    "%s (%d)", eresult_str(e), e);
 	cm_wait_licenses(&cm);
+	{
+		uint32_t *apps, *depots;
+		size_t napps, ndepots;
+		owned_ids(&cm, &apps, &napps, &depots, &ndepots);
+		free(apps);
+		free(depots);
+	}
 	buf_printf(&b, "%s\n%s\n", name, token);
 	path = xasprintf("%s/login", data_dir());
 	if (write_file_atomic(path, b.p, b.len, 0600) == -1)
@@ -269,6 +285,33 @@ oslist_has_windows(struct kv *k, const char *path)
 	const char *s = kv_str(k, path);
 
 	return s == NULL || *s == '\0' || strstr(s, "windows") != NULL;
+}
+
+/*
+ * $DATA/account: what proton-openbsd's steamclient64.dll tells games about
+ * the account (see cmd_run): SteamID, persona name and owned app ids.
+ */
+static void
+save_account(struct cm *cm, const uint32_t *apps, size_t napps)
+{
+	struct buf b = { 0 };
+	char *path;
+	size_t i;
+
+	if (cm->steamid == 0 || (cm->steamid >> 52) != 0x011)
+		return;		/* anonymous */
+	buf_printf(&b, "steamid=%llu\n", (unsigned long long)cm->steamid);
+	if (cm->persona && !strchr(cm->persona, '\n'))
+		buf_printf(&b, "name=%s\n", cm->persona);
+	buf_printf(&b, "apps=");
+	for (i = 0; i < napps; i++)
+		buf_printf(&b, "%s%u", i ? "," : "", apps[i]);
+	buf_printf(&b, "\n");
+	path = xasprintf("%s/account", data_dir());
+	if (write_file_atomic(path, b.p, b.len, 0600) == -1)
+		warnx_("cannot write %s", path);
+	free(path);
+	buf_free(&b);
 }
 
 /* Owned app and depot ids from the account's packages. */
@@ -313,6 +356,7 @@ owned_ids(struct cm *cm, uint32_t **apps, size_t *napps, uint32_t **depots,
 		kv_free(root);
 	}
 	free(pk);
+	save_account(cm, *apps, *napps);
 }
 
 static int
@@ -537,6 +581,55 @@ install_depot(struct cm *cm, char **servers, uint32_t srcapp, struct kv *d,
 	return r;
 }
 
+/*
+ * "dlc=APPID=NAME;..." for the game's DLC (appinfo/extended/listofdlc)
+ * that the account owns; steamclient64.dll lists them to the game.
+ */
+static void
+owned_dlc(struct cm *cm, struct kv *app, const uint32_t *apps, size_t napps,
+    struct buf *info)
+{
+	const char *list = kv_str(app, "appinfo/extended/listofdlc");
+	uint32_t *ids = NULL;
+	size_t nids = 0, ninfo = 0, i, k;
+	struct appinfo *ai = NULL;
+	char *end;
+
+	while (list && *list) {
+		uint32_t id = strtoul(list, &end, 10);
+		if (end == list)
+			break;
+		for (k = 0; k < napps && apps[k] != id; k++)
+			;
+		if (k < napps) {
+			ids = xrealloc(ids, (nids + 1) * sizeof(*ids));
+			ids[nids++] = id;
+		}
+		list = *end ? end + 1 : end;
+	}
+	if (nids == 0)
+		return;
+	if (steam_app_info(cm, ids, nids, &ai, &ninfo) == -1)
+		ninfo = 0;
+	buf_printf(info, "dlc=");
+	for (i = 0; i < nids; i++) {
+		const char *name = "";
+		for (k = 0; k < ninfo; k++)
+			if (ai[k].appid == ids[i]) {
+				const char *n = kv_str(ai[k].kv,
+				    "appinfo/common/name");
+				if (n && !strpbrk(n, ";=\n"))
+					name = n;
+			}
+		buf_printf(info, "%s%u=%s", i ? ";" : "", ids[i], name);
+	}
+	buf_printf(info, "\n");
+	for (k = 0; k < ninfo; k++)
+		kv_free(ai[k].kv);
+	free(ai);
+	free(ids);
+}
+
 static void
 cmd_install(uint32_t appid)
 {
@@ -545,7 +638,7 @@ cmd_install(uint32_t appid)
 	struct launch l;
 	uint32_t *apps = NULL, *owned = NULL;
 	size_t napps = 0, nowned = 0;
-	const char *name, *idir, *type;
+	const char *name, *idir, *type, *s;
 	char *dir, **servers, *infopath, *infodir;
 	struct buf info = { 0 };
 	int ndepots = 0, failed = 0, only32 = 0, is_game;
@@ -623,6 +716,10 @@ cmd_install(uint32_t appid)
 	infodir = xasprintf("%s/steamapps", data_dir());
 	mkdir_p(infodir, 0755);
 	buf_printf(&info, "name=%s\ndir=%s\n", name, dir);
+	if ((s = kv_str(app, "appinfo/depots/branches/public/buildid")))
+		buf_printf(&info, "buildid=%s\n", s);
+	if (!anonymous)
+		owned_dlc(&cm, app, apps, napps, &info);
 	if (pick_launch(app, &l) == 0) {
 		char *exe = unix_path(dir, l.exe), *sl, *ids;
 		buf_printf(&info, "exe=%s\n", exe);
@@ -842,6 +939,52 @@ split_args(const char *s, char ***argv, int *argc)
 	buf_free(&w);
 }
 
+/*
+ * The account and game for proton-openbsd's steamclient64.dll, which
+ * games' Steamworks API talks to in place of Valve's client.
+ */
+static void
+steam_env(struct game *g)
+{
+	struct buf b = { 0 };
+	char *path, *v, *ud;
+	uint64_t steamid = 0;
+	const char *lang;
+
+	path = xasprintf("%s/account", data_dir());
+	if (read_file(path, &b) == 0) {
+		if ((v = field((char *)b.p, "steamid"))) {
+			steamid = strtoull(v, NULL, 10);
+			setenv("PROTON_STEAM_ID", v, 1);
+			free(v);
+		}
+		if ((v = field((char *)b.p, "name"))) {
+			setenv("PROTON_STEAM_NAME", v, 1);
+			free(v);
+		}
+		if ((v = field((char *)b.p, "apps"))) {
+			setenv("PROTON_STEAM_APPS", v, 1);
+			free(v);
+		}
+		buf_free(&b);
+	}
+	free(path);
+	if (g->dlc)
+		setenv("PROTON_STEAM_DLC", g->dlc, 1);
+	if (g->buildid)
+		setenv("PROTON_STEAM_BUILDID", g->buildid, 1);
+	if (g->dir)
+		setenv("PROTON_STEAM_GAMEDIR", g->dir, 1);
+	if ((lang = config_get("language")))
+		setenv("PROTON_STEAM_LANGUAGE", lang, 1);
+	/* stats, achievements and cloud files, outside the prefix */
+	ud = xasprintf("%s/userdata/%u/%s", data_dir(),
+	    (unsigned)(steamid & 0xffffffff), g->id);
+	mkdir_p(ud, 0700);
+	setenv("PROTON_STEAM_USERDATA", ud, 1);
+	free(ud);
+}
+
 static void
 cmd_run(const char *id, int argc, char **argv)
 {
@@ -901,6 +1044,7 @@ cmd_run(const char *id, int argc, char **argv)
 	if (g.steam) {
 		setenv("SteamAppId", g.id, 1);
 		setenv("SteamGameId", g.id, 1);
+		steam_env(&g);
 	}
 	if (g.workdir && chdir(g.workdir) == -1)
 		warnx_("cannot change to %s: %s", g.workdir, strerror(errno));

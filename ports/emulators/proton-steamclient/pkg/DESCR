@@ -1,0 +1,16 @@
+steamclient64.dll and steam.exe for running Steam games with
+proton-openbsd, without Valve's Steam client.
+
+Most games use the Steamworks API (steam_api64.dll), which needs a
+running Steam client and its steamclient64.dll.  This package provides
+an open implementation of the client interfaces: it reports the account
+proton-launcher logged in with (SteamID, persona name, owned apps and
+DLC), keeps user stats, achievements and Steam Cloud files in a local
+directory, and delivers callbacks and asynchronous call results.
+Online services (lobbies, peer-to-peer networking, workshop,
+leaderboards) report failure, as Steam does when it is offline.
+It does not remove DRM; games protected with Steam's DRM wrapper still
+need Valve's client.
+
+proton-openbsd installs the files into each prefix and runs games that
+have SteamAppId set (proton-launcher sets it) under steam.exe.

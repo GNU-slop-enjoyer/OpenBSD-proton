@@ -1,0 +1,253 @@
+#!/bin/sh
+#
+# gen.sh PROTON_LSTEAMCLIENT_DIR > ifaces.c
+#
+# Builds the vtables of every Steamworks interface version from the
+# Windows-side sources of Proton's lsteamclient (winISteam*.c and
+# *_manual.c): their __ASM_VTABLE blocks give the method order of each
+# version and the __thiscall definitions give each method's parameters.
+# Nothing else is taken from Proton.  Each vtable slot points either to a
+# function from impl.list whose signature matches, or to a default that
+# returns 0 / false / "" / a zeroed struct.
+#
+# Also writes sigs.txt (every method with its normalized signature and the
+# versions that use it) next to this script, to help writing impl.list.
+#
+# Copyright (c) 2026 The OpenBSD Proton project contributors
+# Distributed under the LGPL 2.1 or later.
+
+set -eu
+
+src=${1:?usage: gen.sh lsteamclient-dir}
+here=$(cd "$(dirname "$0")" && pwd)
+rev=$(git -C "$src" log -1 --format=%h 2>/dev/null || echo unknown)
+
+cat "$src"/winISteam*.c "$src"/*_manual.c | awk -v impls="$here/impl.list" \
+    -v sigs="$here/sigs.txt" -v rev="$rev" '
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+
+# Type of one parameter (name removed), reduced to what the ABI and the
+# implementations care about.
+function norm(t, base) {
+	gsub(/\/\*[^*]*\*\//, "", t)
+	gsub(/\<const\>/, "", t)
+	t = trim(t)
+	if (t ~ /\(/)
+		return "fp"
+	if (t ~ /\*/) {
+		base = t
+		sub(/[ \t]*\*.*$/, "", base)
+		base = trim(base)
+		if (t ~ /\*.*\*/)
+			return "pp"
+		if (base ~ /^(char|int8_t|uint8_t|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t|float|double|void|CSteamID)$/)
+			return "p:" base
+		return "p:" base
+	}
+	if (t in scalar)
+		return scalar[t]
+	if (t in byref)
+		return "p:" t
+	unknown[t] = 1
+	return "?" t
+}
+
+function param_type(p, t) {
+	p = trim(p)
+	if (p ~ /\(/)
+		return "fp"
+	t = p
+	# drop the parameter name
+	sub(/[A-Za-z_][A-Za-z0-9_]*$/, "", t)
+	return norm(t)
+}
+
+function param_name(p) {
+	p = trim(p)
+	if (match(p, /[A-Za-z_][A-Za-z0-9_]*$/))
+		return substr(p, RSTART)
+	return ""
+}
+
+# Split a parameter list at commas outside parentheses.
+function split_params(s, out,    n, d, i, c, cur) {
+	n = 0; d = 0; cur = ""
+	for (i = 1; i <= length(s); i++) {
+		c = substr(s, i, 1)
+		if (c == "(" || c == "[") d++
+		else if (c == ")" || c == "]") d--
+		if (c == "," && d == 0) { out[++n] = cur; cur = ""; continue }
+		cur = cur c
+	}
+	if (trim(cur) != "")
+		out[++n] = cur
+	return n
+}
+
+function define(line,    ret, name, args, p, n, i, sig, a, rest) {
+	ret = line
+	sub(/__thiscall.*/, "", ret)
+	ret = trim(ret)
+	rest = line
+	sub(/.*__thiscall[ \t]*/, "", rest)
+	name = rest
+	sub(/\(.*/, "", name)
+	name = trim(name)
+	args = rest
+	sub(/^[^(]*\(/, "", args)
+	sub(/\)[^)]*$/, "", args)
+	n = split_params(args, p)
+	# p[1] is "struct w_iface *_this"
+	sig = ""
+	retname[name] = ""
+	for (i = 2; i <= n; i++) {
+		a = param_type(p[i])
+		if (i == 2 && param_name(p[i]) == "_ret") {
+			r = p[i]
+			sub(/[ \t]*\*.*$/, "", r)
+			retname[name] = trim(r)
+		}
+		pname[name, i - 1] = param_name(p[i])
+		sig = sig (i > 2 ? "," : "") a
+	}
+	nparams[name] = n - 1
+	if (ret ~ /\/\*ISteam/)
+		rt = "iface"
+	else
+		rt = norm(ret)
+	rtype[name] = rt
+	sigof[name] = rt "(" sig ")"
+}
+
+BEGIN {
+	split("int8_t i8 uint8_t u8 char i8 int16_t i16 uint16_t u16 int32_t i32 " \
+	    "uint32_t u32 int64_t i64 uint64_t u64 float f32 double f64 void v " \
+	    "CSteamID sid CGameID gid", a, " ")
+	for (i = 1; i in a; i += 2)
+		scalar[a[i]] = a[i + 1]
+	# structs larger than 8 bytes are passed by reference on Win64
+	byref["SteamIPAddress_t"] = 1
+	byref["w_SteamPartyBeaconLocation_t"] = 1
+	byref["w_RemoteStorageUpdatePublishedFileRequest_t"] = 1
+	# sizes of structs returned through a hidden pointer
+	retsize["CSteamID"] = 8
+	retsize["SteamIPAddress_t"] = 20
+	retsize["InputDigitalActionData_t"] = 2
+	retsize["ControllerDigitalActionData_t"] = 2
+	retsize["InputAnalogActionData_t"] = 16
+	retsize["ControllerAnalogActionData_t"] = 16
+	retsize["InputMotionData_t"] = 40
+	retsize["ControllerMotionData_t"] = 40
+	while ((getline l < impls) > 0) {
+		if (l ~ /^[ \t]*(#|$)/)
+			continue
+		split(l, lf, /[ \t]+/)
+		# IFACE METHOD SIG FUNC
+		k = lf[1] SUBSEP lf[2] SUBSEP lf[3]
+		impl[k] = lf[4]
+		implused[lf[4]] = 0
+	}
+}
+
+# definitions (some span two lines)
+/__thiscall winI/ && !/;[ \t]*$/ && !/^DEFINE/ {
+	line = $0
+	while (gsub(/\(/, "(", line) != gsub(/\)/, ")", line)) {
+		if ((getline more) <= 0)
+			break
+		line = line " " more
+	}
+	define(line)
+	next
+}
+
+/__ASM_VTABLE\(/ {
+	v = $0
+	sub(/.*__ASM_VTABLE\([ \t]*/, "", v)
+	sub(/[ \t]*,.*/, "", v)
+	nvt++
+	vtname[nvt] = v
+	nslots[nvt] = 0
+	invt = 1
+	next
+}
+invt && /VTABLE_ADD_FUNC\(/ {
+	f = $0
+	sub(/.*VTABLE_ADD_FUNC\(/, "", f)
+	sub(/\).*/, "", f)
+	slot[nvt, ++nslots[nvt]] = f
+	next
+}
+invt && /^[ \t]*\)/ { invt = 0 }
+
+END {
+	for (t in unknown)
+		printf("gen.sh: unknown parameter type \"%s\"\n", t) > "/dev/stderr"
+	print "/*"
+	print " * Generated by gen.sh from the vtable layouts in Proton'"'"'s lsteamclient"
+	print " * (" rev "). Do not edit; change impl.list or gen.sh instead."
+	print " */"
+	print "#include \"steamclient.h\""
+	print ""
+	for (i = 1; i <= nvt; i++) {
+		v = vtname[i]
+		# winISteamUser_SteamUser023 -> ISteamUser, SteamUser023
+		ifc = v; sub(/^win/, "", ifc); sub(/_.*/, "", ifc)
+		ver = v; sub(/^win[A-Za-z0-9]+_/, "", ver)
+		vifc[i] = ifc; vver[i] = ver
+		for (j = 1; j <= nslots[i]; j++) {
+			fn = slot[i, j]
+			m = fn; sub("^" v "_", "", m)
+			s = sigof[fn]
+			allsig[ifc SUBSEP m SUBSEP s] = allsig[ifc SUBSEP m SUBSEP s] " " ver
+			k = ifc SUBSEP m SUBSEP s
+			if (k in impl) {
+				use[i, j] = impl[k]
+				implused[impl[k]] = 1
+			} else if (rtype[fn] == "iface" || (rtype[fn] == "p:void" && \
+			    pname[fn, nparams[fn]] == "pchVersion")) {
+				if (pname[fn, nparams[fn]] == "pchVersion")
+					use[i, j] = "iface_arg" nparams[fn]
+				else
+					use[i, j] = "d_zero"
+			} else if (retname[fn] != "") {
+				if (!(retname[fn] in retsize))
+					printf("gen.sh: size of %s unknown\n", retname[fn]) > "/dev/stderr"
+				use[i, j] = "d_ret" retsize[retname[fn]]
+			} else if (rtype[fn] == "v")
+				use[i, j] = "d_void"
+			else if (rtype[fn] == "f32")
+				use[i, j] = "d_float"
+			else if (rtype[fn] == "f64")
+				use[i, j] = "d_double"
+			else if (rtype[fn] == "p:char")
+				use[i, j] = "d_str"
+			else
+				use[i, j] = "d_zero"
+		}
+	}
+	for (f in implused) {
+		if (!implused[f])
+			printf("gen.sh: %s matches no method\n", f) > "/dev/stderr"
+		else
+			printf("void %s(void);\n", f)
+	}
+	print ""
+	for (i = 1; i <= nvt; i++) {
+		printf("static void *const vt_%s_%s[] = {\n", vifc[i], vver[i])
+		for (j = 1; j <= nslots[i]; j++)
+			printf("\t(void *)%s,\n", use[i, j])
+		print "};"
+	}
+	print ""
+	print "const struct iface_desc iface_table[] = {"
+	for (i = 1; i <= nvt; i++)
+		printf("\t{ \"%s\", \"%s\", vt_%s_%s, %d },\n", vver[i], vifc[i],
+		    vifc[i], vver[i], nslots[i])
+	print "\t{ NULL, NULL, NULL, 0 }"
+	print "};"
+	for (k in allsig) {
+		split(k, sf, SUBSEP)
+		printf("%s %s %s\t#%s\n", sf[1], sf[2], sf[3], allsig[k]) | "sort > \"" sigs "\""
+	}
+}'

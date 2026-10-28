@@ -96,12 +96,23 @@ Each game gets its own wine prefix under
 kept in `~/.local/share/proton-launcher/login` (mode 0600); the password
 is never stored. `proton-launcher logout` deletes the token.
 
-What to expect: games that do not need a running Steam client work like
-any other program. Many games call the Steamworks API at start
-(`steam_api64.dll`) and expect the Steam client to be running; without it
-they usually quit at once or show an error. There is no way around that
-without running Valve's client or a Steam emulator, and neither is done
-here. Anti-cheat does not work.
+What to expect: Steam games run under `steam.exe` from proton-steamclient,
+which stands in for Valve's client: the game's Steamworks API
+(`steam_api64.dll`) finds a running Steam and gets the account you logged
+in with (SteamID, persona name, owned apps and DLC). Achievements, stats
+and Steam Cloud files are kept in
+`~/.local/share/proton-launcher/userdata/ACCOUNT/APPID/` (not uploaded to
+Steam). Lobbies, Steam networking, the workshop and leaderboards report
+that Steam is offline, so online play through Steam does not work; LAN
+and direct-IP play does where the game offers it. Games wrapped in
+Steam's DRM (SteamStub) still need Valve's client. `PROTON_NO_STEAM=1`
+runs a game without the stand-in, `PROTON_STEAM_TRACE=1` logs its Steam
+calls.
+
+Anti-cheat does not work, and neither do protectors that make Windows
+system calls directly (for example Brawlhalla's): OpenBSD kills a process
+that makes a system call from outside libc (pinsyscalls), see
+COMPATIBILITY.md.
 `proton-launcher info APPID` shows which depots would be downloaded; a
 game whose Windows depots are all 32-bit cannot run on OpenBSD.
 
