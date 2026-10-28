@@ -83,3 +83,32 @@ libraries); installing them into a prefix is left to the user or a future
 launcher (ROADMAP M4), as Proton does per prefix. `graphics/vkd3d-proton`
 follows the same layout (`lib/vkd3d-proton/x64`) and pins widl through a
 port-local cross file, so an installed wine's `widl` is never picked up.
+
+## D10 — Steam without Valve's client: proton-launcher (2026-10-27)
+
+The user asked for Steam login, downloads and a launcher, and to avoid
+proprietary software. Valve's Windows client (32/64-bit mix, CEF
+`steamwebhelper`) was therefore not downloaded or tried. Instead
+`launcher/` is a native C client for Steam's servers: the CM protocol over
+WebSocket and the Authentication, PICS and ContentServerDirectory messages
+as documented by SteamKit2 and SteamDatabase/Protobufs (no code copied;
+messages are encoded by hand with `launcher/pb.c`). It logs in with the
+user's own account and Steam Guard, downloads only depots the account
+owns, and starts games through proton-openbsd. Consequence, documented in
+USING.md and proton-launcher(1): games that need a running Steam client
+(Steamworks `SteamAPI_Init`) do not work. No Steam emulator (Goldberg etc.)
+and nothing that bypasses DRM or ownership is used. `steam_appid.txt` (the
+Steamworks SDK's developer mechanism) is written so games with optional
+Steam features start.
+
+## D11 — proton-launcher builds from the checkout; installs through openbsd-proton-setup (2026-10-28)
+
+Unlike D7, `games/proton-launcher` has no distfile: it copies the
+project's own `launcher/` sources (`PL_SRC`, default relative to the port
+in the checkout). The ports are used in place through `PORTSDIR_PATH`
+instead of being copied into `/usr/ports`, so a `git pull` is all an
+update needs. `make` at the top runs `scripts/openbsd-proton-setup`, which
+builds every port as the user (doas for the root steps only, each shown
+and confirmed) in a build area on the largest `wxallowed` filesystem, and
+installs each package right after it is built (the framework's own
+dependency installs of unsigned packages fail through doas).

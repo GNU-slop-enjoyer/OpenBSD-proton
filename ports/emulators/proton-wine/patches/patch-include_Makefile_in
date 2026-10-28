@@ -1,0 +1,15 @@
+fsync on OpenBSD: makedep only resolves "wine/..." headers that are listed
+here, so dlls/ntdll/unix/fsync.c and server/fsync.c could not find
+wine/fsync_openbsd.h in a fresh build tree.
+
+Index: include/Makefile.in
+--- include/Makefile.in.orig
++++ include/Makefile.in
+@@ -968,6 +968,7 @@ SOURCES = \
+ 	wine/dplaysp.h \
+ 	wine/epm.idl \
+ 	wine/exception.h \
++	wine/fsync_openbsd.h \
+ 	wine/fil_data.idl \
+ 	wine/gdi_driver.h \
+ 	wine/glu.h \

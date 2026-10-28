@@ -5,13 +5,24 @@
 #
 # The VM runs headless under QEMU/KVM as the invoking user.  Its serial
 # console is logged to logs/vm-console.log and sshd is forwarded to
-# 127.0.0.1:$VM_SSH_PORT (default 2222).  VM_MEM and VM_CPUS size the guest.
+# 127.0.0.1:$VM_SSH_PORT (default 2222).  VM_MEM and VM_CPUS size the guest;
+# VM_DISK selects another image (for example a clean copy for installer
+# tests), which then gets its own pid file, monitor socket and console log.
 set -eu
 
 TOP=$(cd "$(dirname "$0")/../.." && pwd)
 VMDIR=$TOP/vm
-DISK=$VMDIR/openbsd.qcow2
-PIDFILE=$VMDIR/qemu.pid
+DISK=${VM_DISK:-$VMDIR/openbsd.qcow2}
+NAME=$(basename "$DISK" .qcow2)
+if [ "$NAME" = openbsd ]; then
+	PIDFILE=$VMDIR/qemu.pid
+	MONITOR=$VMDIR/monitor.sock
+	CONSOLE=$TOP/logs/vm-console.log
+else
+	PIDFILE=$VMDIR/qemu-$NAME.pid
+	MONITOR=$VMDIR/monitor-$NAME.sock
+	CONSOLE=$TOP/logs/vm-console-$NAME.log
+fi
 PORT=${VM_SSH_PORT:-2222}
 MEM=${VM_MEM:-4096}
 CPUS=${VM_CPUS:-6}
@@ -38,13 +49,13 @@ start)
 	    -drive "file=$DISK,if=virtio,format=qcow2" \
 	    -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$PORT-:22" \
 	    -device virtio-net-pci,netdev=n0 \
-	    -monitor "unix:$VMDIR/monitor.sock,server,nowait" \
-	    -serial "file:$TOP/logs/vm-console.log"
+	    -monitor "unix:$MONITOR,server,nowait" \
+	    -serial "file:$CONSOLE"
 	i=0
 	until vm_ssh true 2>/dev/null; do
 		i=$((i + 1))
 		if [ $i -gt 60 ]; then
-			echo "sshd not reachable; see logs/vm-console.log" >&2
+			echo "sshd not reachable; see $CONSOLE" >&2
 			exit 1
 		fi
 		sleep 3

@@ -36,6 +36,11 @@ are linked into the prefix's
 .Pa drive_c/windows/Fonts ,
 where Proton's wine expects the system fonts.
 .Pp
+The soft limits on data size and open files are raised to the hard
+limits of the login class, since the
+.Dq staff
+class allows only 1.5 GB of data by default.
+.Pp
 The commands are:
 .Bl -tag -width Ds
 .It Cm run Ar program.exe Op Ar arg ...

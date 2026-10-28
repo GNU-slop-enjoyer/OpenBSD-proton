@@ -17,7 +17,7 @@ TOP=$(cd "$(dirname "$0")/.." && pwd)
 DEST=$TOP/openbsd-sets/$REL/$ARCH
 PUBKEY=${OPENBSD_PUBKEY:-$TOP/openbsd-sets/openbsd-$V-base.pub}
 
-SETS="SHA256.sig BUILDINFO bsd bsd.mp bsd.rd base$V.tgz comp$V.tgz man$V.tgz
+SETS="SHA256.sig BUILDINFO cd$V.iso bsd bsd.mp bsd.rd base$V.tgz comp$V.tgz man$V.tgz
 	game$V.tgz xbase$V.tgz xshare$V.tgz xfont$V.tgz xserv$V.tgz"
 
 if [ ! -f "$PUBKEY" ]; then

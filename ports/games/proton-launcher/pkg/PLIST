@@ -1,0 +1,2 @@
+@bin bin/proton-launcher
+@man man/man1/proton-launcher.1
