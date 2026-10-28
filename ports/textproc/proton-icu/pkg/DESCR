@@ -1,0 +1,7 @@
+International Components for Unicode (ICU) 68 built as 64-bit Windows
+DLLs (icuuc68.dll, icuin68.dll, icudt68.dll) for proton-wine.
+
+Wine's icu.dll forwards to these libraries.  Programs built on .NET 5
+or later use icu.dll for culture-aware text handling and fail to start
+without it.  proton-openbsd copies them into each wine prefix, as
+Valve's Proton does.

@@ -19,6 +19,7 @@ DXVKDIR=${PROTON_DXVK_DIR:-$PREFIX_DIR/lib/dxvk/x64}
 VKD3DDIR=${PROTON_VKD3D_DIR:-$PREFIX_DIR/lib/vkd3d-proton/x64}
 WINE=$WINEDIR/bin/wine
 STEAMCLIENTDIR=${PROTON_STEAMCLIENT_DIR:-$PREFIX_DIR/lib/proton-steamclient}
+ICUDIR=${PROTON_ICU_DIR:-$PREFIX_DIR/lib/proton-icu/x86_64-windows}
 
 usage() {
 	cat >&2 <<-EOF
@@ -117,7 +118,21 @@ setup_prefix() {
 		install_dll "$f" "$WINEDIR/lib/wine/x86_64-windows"
 	done
 	link_fonts
+	link_icu
 	install_steam
+}
+
+# Wine's icu.dll forwards to ICU 68 (textproc/proton-icu); .NET 5 and
+# later need it.  Linked like Proton does (only links are replaced).
+link_icu() {
+	for f in icuuc68 icuin68 icudt68; do
+		[ -f "$ICUDIR/$f.dll" ] || continue
+		l=$SYS32/$f.dll
+		if [ -L "$l" ] || [ ! -e "$l" ]; then
+			[ "$(readlink "$l" 2>/dev/null)" = "$ICUDIR/$f.dll" ] ||
+			    ln -sf "$ICUDIR/$f.dll" "$l"
+		fi
+	done
 }
 
 # Steam games: emulators/proton-steamclient's steamclient64.dll and

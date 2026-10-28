@@ -3,6 +3,7 @@
  * Distributed under the LGPL 2.1 or later.
  */
 #include <sys/socket.h>
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -42,6 +43,8 @@ net_init(void)
 		SSL_CTX_set_default_verify_paths(ctx);
 }
 
+static const struct timeval io_timeout = { 60, 0 };
+
 int
 conn_open(struct conn *c, const char *host, const char *port, int tls)
 {
@@ -70,6 +73,13 @@ conn_open(struct conn *c, const char *host, const char *port, int tls)
 		return -1;
 	}
 	setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+	/*
+	 * A connection that goes silent (a NAT dropping it, a stalled
+	 * server) must not hang a download thread forever: reads and
+	 * writes fail after a minute and the request is retried.
+	 */
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &io_timeout, sizeof(io_timeout));
+	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &io_timeout, sizeof(io_timeout));
 	c->fd = fd;
 	c->host = xstrdup(host);
 	c->port = xstrdup(port);

@@ -11,6 +11,7 @@ command and log. "Not tested" means exactly that.
 | obsd-vm | OpenBSD 8.0 GENERIC.MP#84 amd64 under QEMU/KVM on host | 6 vCPU, 4 GB, virtio disk/net, no GPU; created by `scripts/vm/install.py` |
 | host2 | Gentoo Linux x86_64, kernel 7.3.0, 32 CPUs, 30 GB RAM (from 2026-10-27) | QEMU 10.2.3 + KVM, LLVM 22, OpenSSL 3.5.9; the old host's VM image and wine work tree were not moved, everything was rebuilt from the repository |
 | obsd-vm2 | OpenBSD 8.0 GENERIC.MP#84 amd64 on host2 (`vm/openbsd.qcow2`, new install) | 16 vCPU, 12 GB, 200 GB disk (/home 127 GB, /usr/local 19 GB), no GPU; `MAKE_JOBS=8` |
+| obsd-real | the user's OpenBSD 8.0 install (Netac NVMe ...205767), booted in QEMU/KVM from host2 | 12 vCPU, 10 GB, `-device nvme` on the raw disk, user-mode net, no GPU: wined3d on llvmpipe, DXVK on lavapipe (`~/.cache/lvp`, copied from obsd-vm2); proton stack from `make` |
 | obsd-fresh | copy of obsd-vm2's `fresh-install` snapshot (`vm/fresh-test.qcow2`, snapshot `clean`) | a clean 8.0 install as the installer leaves it: user in class staff, no doas.conf, no /usr/ports, /home not wxallowed; for testing `openbsd-proton-setup` |
 
 ## Results
@@ -146,6 +147,28 @@ command and log. "Not tested" means exactly that.
 | 2026-10-28 | 3/4 | `games/proton-launcher` port from the checkout (`PORTSDIR_PATH=/usr/ports:…/ports`): fake, package, `port-lib-depends-check` clean, `mandoc -Tlint` only style notes | obsd-vm2 | **pass** | terminal |
 | — | 8 | DXVK / vkd3d-proton actually rendering (needs anv/radv on real hardware) | — | not tested | |
 | — | 9–11 | audio on real hardware (sndio sink), game controllers, Proton game, Steam | — | not tested | |
+
+
+### Session 5 (2026-10-28): the user's games, proton-steamclient, proton-icu
+
+| Date | Tier | Test | Machine | Result | Evidence |
+|---|---|---|---|---|---|
+| 2026-10-28 | 10 | MECCHA CHAMELEON (UE 5.6), no Steam client | obsd-vm2 (lavapipe) | **fail** — `SteamAPI_Init(): Sys_LoadModule failed to load: ...steamclient64.dll` | wine log |
+| 2026-10-28 | 10 | Gang Beasts Windows build under Proton Experimental, no Steam | host2 (gamescope headless) | runs, but `[STEAM:CORE] Failed Init`, no user, no costumes | Player.log |
+| 2026-10-28 | 11 | `tests/pe/steamapi.exe` + MECCHA's steam_api64.dll (SDK 1.57) | host2, wine-staging 11.20 | **pass** 12/12 | — |
+| 2026-10-28 | 11 | `tests/pe/steamapi.exe` + Gang Beasts' steam_api64.dll | host2, wine-staging 11.20 | **pass** 12/12 | — |
+| 2026-10-28 | 11 | Gang Beasts under steam.exe + steamclient64.dll | host2, wine-staging, gamescope | **pass** — Steam init succeeds, lobby code active, costumes load (298) | Player.log |
+| 2026-10-28 | 5 | proton-steamclient 0.1, proton-openbsd 0.1p9, proton-launcher 0.1p0 via `make` | obsd-real | **pass** — built (mingw clang), installed, setup tests pass | `~/.cache/openbsd-proton/setup.log` |
+| 2026-10-28 | 11 | `proton-launcher library` writes `account` | obsd-real | **pass** — real SteamID, persona from ClientAccountInfo, 419 owned apps | — |
+| 2026-10-28 | 10/11 | Your Only Move Is HUSTLE (Godot) | obsd-real (DXVK/lavapipe) | **pass** — Steam main menu | screenshot |
+| 2026-10-28 | 10/11 | People Playground (Unity) | obsd-real (DXVK/lavapipe) | **pass** — main menu (workshop shows "loading") | screenshot |
+| 2026-10-28 | 10/11 | SpiderHeck (Unity) | obsd-real (DXVK/lavapipe) | **pass** — EULA screen (also without steam.exe) | screenshot |
+| 2026-10-28 | 10 | Stardew Valley (.NET 6) without ICU | obsd-real | **fail** — grey window; `module not found for forward 'icuuc68.u_charsToUChars_68'` | wine log |
+| 2026-10-28 | 10 | Stardew Valley with ICU 68 DLLs in system32 | obsd-real | **pass** — title screen | screenshot |
+| 2026-10-28 | 10 | Brawlhalla | obsd-real | **fail** — killed by pinsyscalls: `PINS sendmsg, addr ...`, `PSIG SIGABRT SIG_DFL` (DnaManager.dll executes `syscall`) | `ktrace -t sS` |
+| 2026-10-28 | 10 | Gang Beasts (with and without steamclient, wined3d and DXVK, with and without fsync) | obsd-real | **fail** — stays on the loading screen after `GB Started (Serialized)` | Player.log, wine logs |
+| 2026-10-28 | 3 | `tests/pe/wakeups.exe` (cond. variables, WaitOnAddress, events; 8 threads × 20000) | obsd-real, fsync and server sync | **pass** 3/3, 0 lost wake-ups | — |
+| 2026-10-28 | 3 | QueryPerformanceCounter vs GetTickCount over 2 s | obsd-real | **pass** (2.021 s / 2021 ms) | — |
 
 ## Test programs
 

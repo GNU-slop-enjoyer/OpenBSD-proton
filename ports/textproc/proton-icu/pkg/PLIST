@@ -1,0 +1,5 @@
+lib/proton-icu/
+lib/proton-icu/x86_64-windows/
+lib/proton-icu/x86_64-windows/icudt68.dll
+lib/proton-icu/x86_64-windows/icuin68.dll
+lib/proton-icu/x86_64-windows/icuuc68.dll

@@ -9,7 +9,7 @@ ONLY_FOR_ARCHS =	amd64
 COMMENT =		Steam login, game downloads and launcher for proton-openbsd
 
 PKGNAME =		proton-launcher-0.1
-REVISION =		0
+REVISION =		1
 CATEGORIES =		games emulators
 
 HOMEPAGE =		https://github.com/GNU-slop-enjoyer/OpenBSD-proton
