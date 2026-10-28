@@ -169,6 +169,12 @@ command and log. "Not tested" means exactly that.
 | 2026-10-28 | 10 | Gang Beasts (with and without steamclient, wined3d and DXVK, with and without fsync) | obsd-real | **fail** — stays on the loading screen after `GB Started (Serialized)` | Player.log, wine logs |
 | 2026-10-28 | 3 | `tests/pe/wakeups.exe` (cond. variables, WaitOnAddress, events; 8 threads × 20000) | obsd-real, fsync and server sync | **pass** 3/3, 0 lost wake-ups | — |
 | 2026-10-28 | 3 | QueryPerformanceCounter vs GetTickCount over 2 s | obsd-real | **pass** (2.021 s / 2021 ms) | — |
+| 2026-10-28 | 5 | proton-icu 68.2 (native + mingw clang cross build), proton-openbsd 0.1p10, proton-launcher 0.1p1 via `make` | obsd-real | **pass** — DLLs import only UCRT/kernel32/advapi32 and each other; setup tests pass | `~/.cache/openbsd-proton/setup.log` |
+| 2026-10-28 | 10 | Stardew Valley with proton-icu linked by proton-openbsd | obsd-real (DXVK/lavapipe) | **pass** — title screen | screenshot |
+| 2026-10-28 | 10/11 | R.E.P.O. (Unity) | obsd-real (DXVK/lavapipe) | **pass** — main menu; Player.log `Steam - User ID: 76561199572929330` | screenshot |
+| 2026-10-28 | infra | Terraria download with proton-launcher 0.1p0 | obsd-real | **fail** — hung at 765.3/766.7 MB, two threads in `sbwait` on dead connections | `ps -H`, `fstat` |
+| 2026-10-28 | infra | same, resumed with 0.1p1 (60 s socket timeouts) | obsd-real | **pass** — completed | — |
+| 2026-10-28 | 10 | Terraria | obsd-real | not runnable — 32-bit Windows program (refused with the explanation) | — |
 
 ## Test programs
 

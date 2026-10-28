@@ -47,9 +47,13 @@ VM into `~/.cache/lvp` on the install, test-only).
   their menus/EULA; Stardew Valley reaches its title screen with ICU.
 - Brawlhalla: killed (pinsyscalls). Gang Beasts: loading screen stall.
 
+Later the same session: proton-icu built and installed with `make`;
+Stardew Valley reaches its title screen with it; R.E.P.O. reaches its
+main menu with the account's SteamID; proton-launcher 0.1p1 (socket
+timeouts) completed the Terraria download that had hung (Terraria itself
+is 32-bit).
+
 ### Next
-- Finish the proton-icu build on the install, install, re-test Stardew
-  without the hand-copied DLLs (remove them from prefix 413150).
 - Gang Beasts stall: compare Unity thread states with the Linux run;
   look at what the main thread spins on (disassemble the hot loop).
 - More of the library (R.E.P.O., PEAK, Schedule I, Risk of Rain 2) once
