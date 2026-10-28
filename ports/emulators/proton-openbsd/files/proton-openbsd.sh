@@ -18,6 +18,7 @@ WINEDIR=${PROTON_WINE_DIR:-$PREFIX_DIR/lib/proton-wine}
 DXVKDIR=${PROTON_DXVK_DIR:-$PREFIX_DIR/lib/dxvk/x64}
 VKD3DDIR=${PROTON_VKD3D_DIR:-$PREFIX_DIR/lib/vkd3d-proton/x64}
 WINE=$WINEDIR/bin/wine
+STEAMCLIENTDIR=${PROTON_STEAMCLIENT_DIR:-$PREFIX_DIR/lib/proton-steamclient}
 
 usage() {
 	cat >&2 <<-EOF
@@ -116,6 +117,29 @@ setup_prefix() {
 		install_dll "$f" "$WINEDIR/lib/wine/x86_64-windows"
 	done
 	link_fonts
+	install_steam
+}
+
+# Steam games: emulators/proton-steamclient's steamclient64.dll and
+# steam.exe go where Proton puts Valve's, C:\Program Files (x86)\Steam.
+STEAMDIR_WIN='C:\Program Files (x86)\Steam'
+install_steam() {
+	steamdir=$WINEPREFIX/drive_c/Program\ Files\ \(x86\)/Steam
+	[ -f "$STEAMCLIENTDIR/steamclient64.dll" ] || return 0
+	mkdir -p "$steamdir"
+	for f in steamclient64.dll steam.exe; do
+		cmp -s "$STEAMCLIENTDIR/$f" "$steamdir/$f" && continue
+		cp "$STEAMCLIENTDIR/$f" "$steamdir/$f.tmp" &&
+		    mv "$steamdir/$f.tmp" "$steamdir/$f"
+	done
+}
+
+# Run Steam games (SteamAppId set, as proton-launcher does) under
+# steam.exe so that their Steamworks API finds a running Steam client,
+# unless PROTON_NO_STEAM is set.
+use_steam() {
+	[ -n "${SteamAppId:-}" ] && ! nonzero "${PROTON_NO_STEAM:-}" &&
+	    [ -f "$WINEPREFIX/drive_c/Program Files (x86)/Steam/steam.exe" ]
 }
 
 # Valve's wine registers the system fonts as files in C:\windows\Fonts and
@@ -208,6 +232,7 @@ run)
 	setup_prefix
 	set_overrides
 	setup_log "$1"
+	use_steam && exec "$WINE" "$STEAMDIR_WIN\\steam.exe" "$@"
 	exec "$WINE" "$@"
 	;;
 prefix)

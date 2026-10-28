@@ -27,8 +27,8 @@ V=80
 # Ports in build order, and the packages they produce.
 BUILD_ORDER="devel/mingw-w64 graphics/dxvk graphics/vkd3d-proton
 	emulators/proton-wine emulators/proton-wine-addons fonts/proton-fonts
-	emulators/proton-openbsd games/proton-launcher"
-OUR_PKGS="proton-launcher proton-openbsd proton-fonts proton-wine-addons
+	emulators/proton-steamclient emulators/proton-openbsd games/proton-launcher"
+OUR_PKGS="proton-launcher proton-openbsd proton-steamclient proton-fonts proton-wine-addons
 	proton-wine vkd3d-proton dxvk mingw-w64"
 
 # Release packages needed to build them (docs/DEPENDENCIES.md); the rest

@@ -1,0 +1,124 @@
+# Interface methods implemented in impl.c, by normalized signature as
+# printed in sigs.txt (written by gen.sh).  Every interface version whose
+# method has the same signature gets the function; the others get a
+# default (0 / false / "" / zeroed struct).
+#
+# IFACE			METHOD			SIGNATURE		FUNCTION
+
+ISteamClient CreateSteamPipe i32() client_CreateSteamPipe
+ISteamClient BReleaseSteamPipe i8(i32) client_BReleaseSteamPipe
+ISteamClient ConnectToGlobalUser i32(i32) client_ConnectToGlobalUser
+ISteamClient CreateLocalUser i32(p:int32_t,u32) client_CreateLocalUser
+ISteamClient GetISteamUserStats iface(i32,i32,p:char) client_GetISteamUserStats
+
+ISteamUser GetHSteamUser i32() user_GetHSteamUser
+ISteamUser BLoggedOn i8() user_BLoggedOn
+ISteamUser GetSteamID p:CSteamID(p:CSteamID) user_GetSteamID
+ISteamUser GetUserDataFolder i8(p:char,i32) user_GetUserDataFolder
+ISteamUser GetAuthSessionTicket u32(p:void,i32,p:uint32_t) user_GetAuthSessionTicket
+ISteamUser GetAuthSessionTicket u32(p:void,i32,p:uint32_t,p:SteamNetworkingIdentity_144) user_GetAuthSessionTicket
+ISteamUser GetAuthTicketForWebApi u32(p:char) user_GetAuthTicketForWebApi
+ISteamUser BeginAuthSession u32(p:void,i32,sid) user_BeginAuthSession
+ISteamUser UserHasLicenseForApp u32(sid,u32) user_UserHasLicenseForApp
+ISteamUser BIsBehindNAT i8() user_BIsBehindNAT
+ISteamUser GetPlayerSteamLevel i32() user_GetPlayerSteamLevel
+ISteamUser GetVoiceOptimalSampleRate u32() user_GetVoiceOptimalSampleRate
+ISteamUser RequestEncryptedAppTicket u64(p:void,i32) user_RequestEncryptedAppTicket
+ISteamUser RequestStoreAuthURL u64(p:char) user_RequestStoreAuthURL
+
+ISteamUtils GetSecondsSinceAppActive u32() utils_GetSecondsSinceAppActive
+ISteamUtils GetSecondsSinceComputerActive u32() utils_GetSecondsSinceComputerActive
+ISteamUtils GetConnectedUniverse u32() utils_GetConnectedUniverse
+ISteamUtils GetServerRealTime u32() utils_GetServerRealTime
+ISteamUtils GetIPCountry p:char() utils_GetIPCountry
+ISteamUtils GetCurrentBatteryPower u8() utils_GetCurrentBatteryPower
+ISteamUtils GetAppID u32() utils_GetAppID
+ISteamUtils IsAPICallCompleted i8(u64,p:int8_t) utils_IsAPICallCompleted
+ISteamUtils GetAPICallFailureReason u32(u64) utils_GetAPICallFailureReason
+ISteamUtils GetAPICallResult i8(u64,p:void,i32,i32,p:int8_t) utils_GetAPICallResult
+ISteamUtils GetSteamUILanguage p:char() utils_GetSteamUILanguage
+ISteamUtils IsRunningUnderProton i8() utils_IsRunningUnderProton
+ISteamUtils InitFilterText i8(u32) utils_InitFilterText
+ISteamUtils FilterText i32(u32,sid,p:char,p:char,u32) utils_FilterText
+
+ISteamApps BIsSubscribed i8() apps_BIsSubscribed
+ISteamApps BIsSubscribedApp i8(u32) apps_BIsSubscribedApp
+ISteamApps BIsDlcInstalled i8(u32) apps_BIsDlcInstalled
+ISteamApps BIsAppInstalled i8(u32) apps_BIsAppInstalled
+ISteamApps GetCurrentGameLanguage p:char() apps_GetCurrentGameLanguage
+ISteamApps GetAvailableGameLanguages p:char() apps_GetAvailableGameLanguages
+ISteamApps GetEarliestPurchaseUnixTime u32(u32) apps_GetEarliestPurchaseUnixTime
+ISteamApps GetDLCCount i32() apps_GetDLCCount
+ISteamApps BGetDLCDataByIndex i8(i32,p:uint32_t,p:int8_t,p:char,i32) apps_BGetDLCDataByIndex
+ISteamApps GetAppBuildId i32() apps_GetAppBuildId
+ISteamApps MarkContentCorrupt i8(i8) apps_MarkContentCorrupt
+ISteamApps SetDlcContext i8(u32) apps_SetDlcContext
+ISteamApps GetAppInstallDir u32(u32,p:char,u32) apps_GetAppInstallDir
+ISteamApps GetAppOwner p:CSteamID(p:CSteamID) apps_GetAppOwner
+ISteamApps GetLaunchQueryParam p:char(p:char) apps_GetLaunchQueryParam
+ISteamApps GetLaunchCommandLine i32(p:char,i32) apps_GetLaunchCommandLine
+
+ISteamFriends GetPersonaName p:char() friends_GetPersonaName
+ISteamFriends GetPersonaState u32() friends_GetPersonaState
+ISteamFriends GetFriendPersonaName p:char(sid) friends_GetFriendPersonaName
+ISteamFriends GetFriendPersonaState u32(sid) friends_GetFriendPersonaState
+ISteamFriends GetPlayerNickname p:char(sid) friends_GetPlayerNickname
+ISteamFriends SetRichPresence i8(p:char,p:char) friends_SetRichPresence
+ISteamFriends RequestUserInformation i8(sid,i8) friends_RequestUserInformation
+
+ISteamUserStats RequestCurrentStats i8() stats_RequestCurrentStats
+ISteamUserStats RequestCurrentStats i8(gid) stats_RequestCurrentStats_gid
+ISteamUserStats GetStat i8(p:char,p:int32_t) stats_GetStat
+ISteamUserStats GetStat_2 i8(p:char,p:float) stats_GetStatFloat
+ISteamUserStats SetStat i8(p:char,i32) stats_SetStat
+ISteamUserStats SetStat_2 i8(p:char,f32) stats_SetStatFloat
+ISteamUserStats UpdateAvgRateStat i8(p:char,f32,f64) stats_UpdateAvgRateStat
+ISteamUserStats GetAchievement i8(p:char,p:int8_t) stats_GetAchievement
+ISteamUserStats GetAchievementAndUnlockTime i8(p:char,p:int8_t,p:uint32_t) stats_GetAchievementAndUnlockTime
+ISteamUserStats SetAchievement i8(p:char) stats_SetAchievement
+ISteamUserStats ClearAchievement i8(p:char) stats_ClearAchievement
+ISteamUserStats IndicateAchievementProgress i8(p:char,u32,u32) stats_IndicateAchievementProgress
+ISteamUserStats StoreStats i8() stats_StoreStats
+ISteamUserStats ResetAllStats i8(i8) stats_ResetAllStats
+ISteamUserStats GetStat i8(gid,p:char,p:int32_t) stats_GetStat_gid
+ISteamUserStats GetStat_2 i8(gid,p:char,p:float) stats_GetStatFloat_gid
+ISteamUserStats SetStat i8(gid,p:char,i32) stats_SetStat_gid
+ISteamUserStats SetStat_2 i8(gid,p:char,f32) stats_SetStatFloat_gid
+ISteamUserStats GetAchievement i8(gid,p:char,p:int8_t) stats_GetAchievement_gid
+ISteamUserStats SetAchievement i8(gid,p:char) stats_SetAchievement_gid
+ISteamUserStats ClearAchievement i8(gid,p:char) stats_ClearAchievement_gid
+ISteamUserStats StoreStats i8(gid) stats_StoreStats_gid
+ISteamUserStats FindLeaderboard u64(p:char) stats_FindLeaderboard
+ISteamUserStats FindOrCreateLeaderboard u64(p:char,u32,u32) stats_FindOrCreateLeaderboard
+ISteamUserStats GetNumberOfCurrentPlayers u64() stats_GetNumberOfCurrentPlayers
+ISteamUserStats RequestGlobalAchievementPercentages u64() stats_RequestGlobalAchievementPercentages
+ISteamUserStats RequestUserStats u64(sid) stats_RequestUserStats
+ISteamUserStats GetUserStat i8(sid,p:char,p:int32_t) stats_GetUserStat
+ISteamUserStats GetUserStat_2 i8(sid,p:char,p:float) stats_GetUserStatFloat
+ISteamUserStats GetUserAchievement i8(sid,p:char,p:int8_t) stats_GetUserAchievement
+ISteamUserStats GetUserAchievementAndUnlockTime i8(sid,p:char,p:int8_t,p:uint32_t) stats_GetUserAchievementAndUnlockTime
+
+ISteamRemoteStorage FileWrite i8(p:char,p:void,i32) rs_FileWrite
+ISteamRemoteStorage FileRead i32(p:char,p:void,i32) rs_FileRead
+ISteamRemoteStorage FileExists i8(p:char) rs_FileExists
+ISteamRemoteStorage FilePersisted i8(p:char) rs_FileExists
+ISteamRemoteStorage FileDelete i8(p:char) rs_FileDelete
+ISteamRemoteStorage FileForget i8(p:char) rs_FileForget
+ISteamRemoteStorage GetFileSize i32(p:char) rs_GetFileSize
+ISteamRemoteStorage GetFileTimestamp i64(p:char) rs_GetFileTimestamp
+ISteamRemoteStorage GetFileCount i32() rs_GetFileCount
+ISteamRemoteStorage GetFileNameAndSize p:char(i32,p:int32_t) rs_GetFileNameAndSize
+ISteamRemoteStorage GetQuota i8(p:uint64_t,p:uint64_t) rs_GetQuota
+ISteamRemoteStorage IsCloudEnabledForAccount i8() rs_True
+ISteamRemoteStorage IsCloudEnabledForApp i8() rs_True
+ISteamRemoteStorage BeginFileWriteBatch i8() rs_True
+ISteamRemoteStorage EndFileWriteBatch i8() rs_True
+ISteamRemoteStorage GetSyncPlatforms u32(p:char) rs_GetSyncPlatforms
+ISteamRemoteStorage SetSyncPlatforms i8(p:char,u32) rs_SetSyncPlatforms
+ISteamRemoteStorage FileWriteAsync u64(p:char,p:void,u32) rs_FileWriteAsync
+ISteamRemoteStorage FileReadAsync u64(p:char,u32,u32) rs_FileReadAsync
+ISteamRemoteStorage FileReadAsyncComplete i8(u64,p:void,u32) rs_FileReadAsyncComplete
+
+ISteamMatchmaking RequestLobbyList u64() mm_RequestLobbyList
+ISteamMatchmaking CreateLobby u64(u32,i32) mm_CreateLobby
+ISteamMatchmaking JoinLobby u64(sid) mm_JoinLobby

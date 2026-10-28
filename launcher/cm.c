@@ -142,8 +142,10 @@ cm_close(struct cm *cm)
 		buf_free(&cm->queue[i]);
 	free(cm->queue);
 	free(cm->licenses);
+	free(cm->persona);
 	cm->queue = NULL;
 	cm->licenses = NULL;
+	cm->persona = NULL;
 	cm->nqueue = cm->qhead = cm->nlicenses = 0;
 }
 
@@ -305,6 +307,15 @@ note_message(struct cm *cm, struct cm_msg *m)
 	struct pbr r;
 	struct pbf f;
 
+	if (m->emsg == EMSG_CLIENT_ACCOUNT_INFO) {
+		/* CMsgClientAccountInfo: 1 persona_name */
+		char *name = pb_get_str(m->body, m->blen, 1);
+		if (name) {
+			free(cm->persona);
+			cm->persona = name;
+		}
+		return;
+	}
 	if (m->emsg != EMSG_CLIENT_LICENSE_LIST)
 		return;
 	free(cm->licenses);
